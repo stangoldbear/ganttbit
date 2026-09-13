@@ -4,6 +4,76 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## 1.1.0 - 2026-09-13
+
+- A project can be created from the interface. *New project* in the header,
+  and beside the search field on a phone, asks for a name and nothing else:
+  the id is the name as a slug, the card lands at the end of the live list
+  with `status: active`, and the page comes back with its panel open. The
+  markdown tab of the hierarchy page still creates cards too; this is the
+  short way.
+- A note no longer needs a project. *Actions & notes* opens with an *Inbox*
+  card and a field to write into it; the first note creates `inbox.md`, a
+  card like any other on disk. The chart, the phone's list and the project
+  count leave it out, the hierarchy page shows it apart above the projects,
+  and the markdown tab puts it first. The id is reserved: a project cannot be
+  created with it.
+- The hierarchy page reads at the chart's four levels. Every branch of the
+  tree folds, and *Compact*, *Projects*, *Stakeholders* and *All details* say
+  what a project's line shows — the name; then its status, span and deadline;
+  then the people on it — and whether the project opens. A level is absolute,
+  and a project folded or opened by hand against it is remembered.
+- Beside the level, how much of a line: *All* is every key and value as the
+  file holds them, *No keys* drops the key of every value and keeps the name
+  of every branch, *Relevant* (the default) also drops `id`, `type`,
+  `priority`, `status` and every empty value, prints the timeline as one line
+  per row, and keeps the key where a value says nothing without it — a date,
+  a role, a severity. A list of plain values, platforms or flags, is one line
+  at every level.
+- A value in the tree edits in place. Double-click it, or press Enter on it,
+  and it becomes a field with Save and Cancel; the change goes to the card at
+  the path the tree shows, through the same validation as the form where the
+  schema knows the field, and as text where it does not. Keys are not edited
+  here, and nothing is added or removed: that is the markdown tab.
+- The hierarchy page remembers its tab, its level, its detail and its folds,
+  stored in the browser like every other preference.
+- The button on a card in *Actions & notes* now goes to the project: it opens
+  the panel and scrolls to it, and on a phone it switches to the list, where
+  the panel sits under its card. It used to toggle the panel where it stood,
+  in the chart below the fold on a desktop and on a surface that was not on
+  screen on a phone, which looked like nothing at all.
+- Settings ends with an About group: the version that is running, the release
+  notes that shipped with it behind a fold, and a link to the releases page.
+  The notes are the `## <version>` section of `CHANGELOG.md`, rendered by the
+  same markdown pass a card's notes go through, so a release describes itself
+  in one place and the panel reads it.
+- That link is the whole of the update check, deliberately. It opens a new tab
+  and the application makes no request of its own, on a click or otherwise,
+  which keeps the content security policy at `default-src 'self'` and leaves
+  the offline guarantee exactly as it was.
+
+### Fixed
+
+- On the hierarchy page the footer appeared long before the tree ended. The
+  box around the tree was capped to the window's height like the chart's, so
+  the tree overflowed it and the sticky footer followed the box. The tree now
+  scrolls with the page, and each page keeps a scroll position of its own,
+  so leaving the chart halfway down no longer opens the hierarchy in the void.
+- The *open / done* badge on *Actions & notes* drifted after a change: the
+  page counted the notes of every panel, finished and abandoned projects
+  included, while the server had counted the live ones. Both count the live
+  ones now.
+- A `summary` could not open the `details` it belongs to inside an overlay.
+  The click router cancels the default of any click that reaches an element
+  carrying an action, an overlay's backdrop carries one, and the list of
+  controls whose default belongs to them named inputs, selects, textareas and
+  labels but not summaries. Same shape as the checkbox that could not be
+  ticked; the list is what was incomplete, so that is what was fixed.
+- A logo. A gem beside three bars, drawn as one small SVG, replaces the
+  diamond in the header of the dashboard and of the docs page; the gem alone
+  is the favicon and the icon of the installed app. The diamond stays on the
+  timeline, where it marks a milestone.
+
 ## 1.0.0 - 2026-09-13
 
 First public release.

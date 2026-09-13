@@ -161,7 +161,7 @@ header {
   border-bottom: 1px solid hsl(var(--border));
 }
 .wordmark { display: flex; align-items: center; gap: 8px; }
-.wordmark .icon { width: 11px; height: 11px; color: hsl(var(--foreground)); }
+.wordmark__logo { height: 22px; width: auto; }
 h1 { font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
 .header-stat { font-size: 12px; color: hsl(var(--muted-foreground)); white-space: nowrap; }
 .header-stat strong { color: hsl(var(--foreground)); font-weight: 600; }
@@ -250,12 +250,22 @@ textarea { width: 100%; resize: vertical; line-height: 1.5; padding: 8px; }
   display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px;
 }
 .global-todo-card__title { font-size: 13px; font-weight: 600; }
+.global-todo-card__hint { font-size: 11px; color: hsl(var(--muted-foreground)); }
+/* The inbox has no rail: it is not a rank, it is the place before one. */
+.global-todo-card--inbox { border-left-color: hsl(var(--border)); }
+.add-todo-form--inbox { margin-top: 0; margin-bottom: 8px; }
+.add-todo-form--inbox .add-todo-form__textarea { min-height: 38px; }
 .todo-group-label {
   font-size: 10px; font-weight: 600; margin-bottom: 4px;
   text-transform: uppercase; letter-spacing: .06em;
   color: hsl(var(--muted-foreground));
 }
 .todo-group-label--history { margin-top: 8px; }
+
+/* On the hierarchy page the same box holds a tree, which scrolls with the
+   page: capped to the window it would end long before its content does,
+   and the sticky footer would follow the box rather than the tree. */
+[data-shell="page"] .gantt-box { position: static; max-height: none; }
 
 /* ─── Chart ───────────────────────────────────────────────────────────────── */
 /* The middle of the app shell: pinned to the top of the window, as tall as
@@ -939,6 +949,12 @@ footer {
 /* ─── Hierarchy view ──────────────────────────────────────────────────────── */
 .header-side { display: flex; align-items: center; gap: 8px; }
 .view-panel { display: flex; flex-direction: column; gap: 10px; }
+.view-toolbar {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.view-toolbar > .tabs { margin-bottom: 0; }
+.view-toolbar__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .view-hint { font-size: 11.5px; color: hsl(var(--muted-foreground)); max-width: 70ch; }
 .view-hint code { font-family: var(--font-mono); font-size: 11px; }
 .view-actions { display: flex; gap: 8px; align-items: center; }
@@ -952,6 +968,7 @@ footer {
 }
 .tree__group > .group-row__marker { display: inline-block; margin-right: 6px; }
 .tree__group:first-child { margin-top: 0; }
+.tree--inbox { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid hsl(var(--border)); }
 .tree__project {
   font-size: 13px; font-weight: 400; text-transform: none; letter-spacing: 0;
   margin: 6px 0;
@@ -960,9 +977,74 @@ footer {
 .tree__when { color: hsl(var(--muted-foreground)); font-size: 11px; }
 
 /* The structure view is a reading of the file: keys in the file's own font,
-   values as they are stored, and a multi-line value kept as it was typed. */
-.tree__project > details > summary { cursor: pointer; list-style-position: outside; }
-.tree__project > details > summary::marker { color: hsl(var(--muted-foreground)); }
+   values as they are stored, and a multi-line value kept as it was typed.
+   Every branch folds. The marker is the chart's chevron, drawn inside the
+   line it belongs to: the browser's own sits outside the box. */
+.tree summary {
+  cursor: pointer; list-style: none; position: relative; padding-left: 16px;
+}
+.tree summary::-webkit-details-marker { display: none; }
+.tree summary::before {
+  content: ''; position: absolute; left: 3px; top: .5em; width: 6px; height: 6px;
+  border-right: 1.5px solid hsl(var(--muted-foreground));
+  border-bottom: 1.5px solid hsl(var(--muted-foreground));
+  transform: rotate(-45deg); transition: transform .12s;
+}
+.tree details[open] > summary::before { transform: rotate(45deg); top: .35em; }
+@media (prefers-reduced-motion: reduce) { .tree summary::before { transition: none; } }
+.tree__item + .tree__item::before { content: ' · '; color: hsl(var(--muted-foreground)); }
+/* A leaf lines up with the branch labels beside it. */
+.tree__entry:not(.tree__entry--branch) { padding-left: 16px; }
+.tree__project > details > summary { padding-left: 18px; }
+.tree__project > details > summary::before { left: 4px; }
+
+/* What a level reads off the project's line. All of it is always there. */
+.tree__signals, .tree__people { margin-left: 4px; }
+.tree__deadline { font-size: 10px; vertical-align: 1px; }
+.tree__who {
+  display: inline-block; font-size: 10.5px; line-height: 16px; padding: 0 7px;
+  border-radius: 10px; margin-right: 3px;
+  background: hsl(var(--muted)); color: hsl(var(--muted-foreground));
+}
+:root[data-tree-depth="compact"] .tree__signals,
+:root[data-tree-depth="compact"] .tree__people,
+:root[data-tree-depth="projects"] .tree__people { display: none; }
+
+/* How much of a line: the keys, the ids nobody reads twice, the timeline as
+   one line per row. The markup is the same at every level. */
+:root[data-tree-detail="keys-off"] .tree__entry:not(.tree__entry--branch) > .tree__key,
+:root[data-tree-detail="relevant"] .tree__entry:not(.tree__entry--branch) > .tree__key { display: none; }
+/* Where a value says nothing without its key, a date or a role, the key stays. */
+:root[data-tree-detail="relevant"] .tree__entry[data-key="dates"] .tree__key,
+:root[data-tree-detail="relevant"] .tree__entry[data-key="stakeholders"] .tree__key,
+:root[data-tree-detail="relevant"] .tree__entry[data-key="dependencies"] .tree__key,
+:root[data-tree-detail="relevant"] .tree__entry[data-key="risks_and_criticalities"] .tree__key,
+:root[data-tree-detail="relevant"] .tree__entry[data-key="tech_footprint"] .tree__key { display: inline; }
+:root[data-tree-detail="relevant"] .tree__entry[data-key="id"],
+:root[data-tree-detail="relevant"] .tree__entry[data-key="type"],
+:root[data-tree-detail="relevant"] .tree__entry[data-key="priority"],
+:root[data-tree-detail="relevant"] .tree__project > details > ul > .tree__entry[data-key="status"],
+:root[data-tree-detail="relevant"] .tree__entry:has(> .tree__empty) { display: none; }
+:root[data-tree-detail="relevant"] .tree__entry[data-key="timeline"] > details > ul > .tree__entry:not(.tree__entry--branch),
+:root[data-tree-detail="relevant"] .tree__entry[data-key="tasks"] .tree__entry:not(.tree__entry--branch),
+:root[data-tree-detail="relevant"] .tree__entry[data-key="milestones"] .tree__entry:not(.tree__entry--branch) { display: inline; padding-left: 0; margin-right: 6px; }
+:root[data-tree-detail="relevant"] .tree__entry[data-key="tasks"] > details > ul > .tree__entry--branch > details > summary,
+:root[data-tree-detail="relevant"] .tree__entry[data-key="milestones"] > details > ul > .tree__entry--branch > details > summary { display: none; }
+:root[data-tree-detail="relevant"] .tree__entry[data-key="tasks"] > details > ul > .tree__entry--branch > details > ul,
+:root[data-tree-detail="relevant"] .tree__entry[data-key="milestones"] > details > ul > .tree__entry--branch > details > ul { display: inline; margin: 0; padding: 0; border: 0; }
+:root[data-tree-detail="relevant"] .tree__entry[data-key="tasks"] > details > ul > .tree__entry--branch,
+:root[data-tree-detail="relevant"] .tree__entry[data-key="milestones"] > details > ul > .tree__entry--branch { padding-left: 16px; }
+:root[data-tree-detail="relevant"] .tree__entry[data-key="end"] > .tree__leaf::before {
+  content: '→ '; color: hsl(var(--muted-foreground));
+}
+
+/* A value becomes a field on double click, like a field in the panel. */
+.tree__leaf { border-radius: 3px; cursor: text; }
+.tree__leaf:hover, .tree__leaf:focus-visible { background: hsl(var(--muted)); outline: none; }
+.tree__edit { display: flex; gap: 6px; align-items: flex-start; margin: 2px 0 4px 16px; }
+.tree__edit .form-input { font-size: 11.5px; flex: 1 1 auto; min-width: 0; }
+.tree__edit textarea.form-input { min-height: 90px; font-family: var(--font-mono); }
+.tree__edit .editable-actions { display: flex; gap: 6px; flex: none; }
 .tree__entry { font-size: 11.5px; margin: 1px 0; }
 .tree__key {
   font-family: var(--font-mono); font-size: 11px;
@@ -1015,6 +1097,31 @@ footer {
 .settings-group__note {
   font-size: 11.5px; color: hsl(var(--muted-foreground)); margin: -4px 0 2px; max-width: 46em;
 }
+
+/* About. The notes are the CHANGELOG section for the version that is running,
+   rendered by the same markdown pass a card's notes go through, so they arrive
+   as h6/p/ul and are scoped here rather than restyled globally. Collapsed by
+   default: a release list is reference, not something to scroll past every
+   time you come here to change the theme. */
+.settings-about__line { font-size: 12.5px; }
+.settings-about__version { font-variant-numeric: tabular-nums; font-weight: 600; }
+.settings-about__summary { cursor: pointer; font-size: 12.5px; }
+.settings-about__summary::marker { color: hsl(var(--muted-foreground)); }
+.settings-about__notes {
+  margin-top: 8px; padding: 2px 0 2px 12px;
+  border-left: 2px solid hsl(var(--border));
+  font-size: 11.5px; color: hsl(var(--muted-foreground));
+  max-height: 42vh; overflow-y: auto;
+}
+.settings-about__notes h6 {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  color: hsl(var(--foreground)); margin: 12px 0 4px;
+}
+.settings-about__notes h6:first-child { margin-top: 0; }
+.settings-about__notes p { margin: 0 0 6px; }
+.settings-about__notes ul, .settings-about__notes ol { margin: 0 0 6px; padding-left: 18px; }
+.settings-about__notes li { margin-bottom: 3px; }
+.settings-about__link { align-self: flex-start; }
 
 /* The band controls. A preset is the guidance; the sliders are for anyone who
    wants past it. The swatch shows the colour as it comes out on this theme,
@@ -1236,8 +1343,11 @@ input[type="checkbox"] { accent-color: hsl(var(--primary)); }
   .tabbar__tab--active { color: hsl(var(--foreground)); }
 
   /* ── The list ── */
-  .plist__search { position: sticky; top: 0; z-index: 2; padding: 8px 0; background: hsl(var(--background)); }
-  .plist__search .form-input { width: 100%; }
+  .plist__search {
+    position: sticky; top: 0; z-index: 2; padding: 8px 0; background: hsl(var(--background));
+    display: flex; gap: 6px; align-items: center;
+  }
+  .plist__search .form-input { flex: 1 1 auto; min-width: 0; }
   .plist__group { margin-bottom: 14px; }
   .plist__title {
     display: flex; align-items: center; gap: 6px; margin-bottom: 8px;

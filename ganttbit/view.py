@@ -9,7 +9,7 @@ custom properties so neither side restates a number the other owns.
 import json
 from urllib.parse import quote
 
-from . import gantt, settings as settings_module
+from . import __version__, gantt, settings as settings_module
 from .domain import (
     RANGES,
     Timeline,
@@ -40,10 +40,9 @@ _LINK_FIELD_CLASS = {
     'figma': 'figma-field-',
 }
 
-# One motif, used three times: the milestone marker on the timeline, the
-# wordmark, and the favicon below.
-_FAVICON = ("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'"
-            "%3E%3Cpath fill='%23475569' d='M8 1.2 14.8 8 8 14.8 1.2 8Z'/%3E%3C/svg%3E")
+# The gem alone is the icon; with the three bars beside it, the logo in the
+# header. Both are drawn once, in static/, and the docs page carries a copy.
+_FAVICON = '/static/icon.svg'
 
 
 # ─── Reusable fragments ──────────────────────────────────────────────────────
@@ -377,9 +376,15 @@ def render_detail_row(project, group, at=100.0, settings=None):
 
 
 # ─── Aggregated to-do view ───────────────────────────────────────────────────
-def render_global_todos(projects, settings=None):
+def split_inbox(projects):
+    """The reserved inbox card apart from the projects: (inbox or None, projects)."""
+    inbox = next((p for p in projects if p.get('id') == settings_module.INBOX_ID), None)
+    return inbox, [p for p in projects if p is not inbox]
+
+
+def render_global_todos(projects, settings=None, inbox=None):
     """
-    Open actions, in priority order.
+    Open actions, in priority order, the inbox first.
 
     Finished and abandoned work is left out: it should not keep asking for
     attention. Its notes stay readable in its own panel.
@@ -397,18 +402,17 @@ def render_global_todos(projects, settings=None):
             cards.append(_todo_card(project, band_position(index, len(live)),
                                     todos, history, config))
 
-    if not cards:
-        return ('<div class="todo-empty">No note or action found in the vault.</div>',
-                total_active, total_done)
+    inbox_todos = (inbox or {}).get('todos') or []
+    inbox_done = (inbox or {}).get('done') or []
+    total_active += len(inbox_todos)
+    total_done += len(inbox_done)
+    cards.insert(0, _inbox_card(inbox_todos, inbox_done))
 
     return ''.join(cards), total_active, total_done
 
 
-def _todo_card(project, at, todos, history, config):
-    project_id = project['id']
-    name = project.get('name', project_id)
+def _todo_sections(project_id, todos, history):
     sections = ''
-
     if todos:
         sections += ('<div class="todo-group" data-group="open">'
                      '<div class="todo-group-label">Open actions</div>'
@@ -422,13 +426,45 @@ def _todo_card(project, at, todos, history, config):
                      + _todo_list(project_id, history, done=True,
                                   dom_prefix='global-todo-row', empty_label='')
                      + '</div>')
+    return sections
+
+
+def _todo_card(project, at, todos, history, config):
+    project_id = project['id']
+    name = project.get('name', project_id)
 
     return f'''<div class="global-todo-card" style="--at:{at:.2f}%">
   <div class="global-todo-card__head" data-card="{esc(project_id)}">
     <strong class="global-todo-card__title" title="{esc(project_id)}">{esc(name)}</strong>
-    <button type="button" class="btn btn--ghost btn--sm" data-action="toggle-detail" data-project="{esc(project_id)}">{icon('panel')}Notes &amp; actions</button>
+    <button type="button" class="btn btn--ghost btn--sm" data-action="go-project" data-project="{esc(project_id)}" title="Open the project with these notes">{icon('panel')}Open project</button>
   </div>
-  {sections}
+  {_todo_sections(project_id, todos, history)}
+</div>'''
+
+
+def _inbox_card(todos, history):
+    """
+    The notes of no project, first and always there.
+
+    It has no panel to open, so the field to write a note is on the card
+    itself, and an empty inbox is that field: the empty state is the composer.
+    """
+    project_id = settings_module.INBOX_ID
+    return f'''<div class="global-todo-card global-todo-card--inbox" data-inbox>
+  <div class="global-todo-card__head" data-card="{esc(project_id)}">
+    <strong class="global-todo-card__title" title="{esc(project_id)}">{esc(settings_module.INBOX_TITLE)}</strong>
+    <span class="global-todo-card__hint">Notes of no project</span>
+  </div>
+  <div class="add-todo-form add-todo-form--inbox">
+    <textarea id="new-todo-text-{esc(project_id)}" class="add-todo-form__textarea" placeholder="A note or an action, for no project in particular" aria-label="New note for the inbox"></textarea>
+    <div class="add-todo-form__row">
+      <label class="due-field"><span class="field-label">Due</span>
+        <input type="date" id="new-todo-dl-{esc(project_id)}" class="form-input form-input--date" aria-label="Due date"></label>
+      <button type="button" class="btn btn--default btn--sm" data-action="todo-add" data-project="{esc(project_id)}">Save</button>
+      <button type="button" class="btn btn--secondary btn--sm" data-action="todo-add-cancel" data-project="{esc(project_id)}">Cancel</button>
+    </div>
+  </div>
+  {_todo_sections(project_id, todos, history)}
 </div>'''
 
 
@@ -448,7 +484,7 @@ _WINDOW_LABELS = {
 }
 
 
-def _depth_switch():
+def _depth_switch(action='depth', dom_id='depth-switch'):
     """
     Three levels, not four toggles.
 
@@ -461,12 +497,28 @@ def _depth_switch():
     reading does not need. No second markup, no second state.
     """
     buttons = ''.join(
-        f'<button type="button" class="tab" data-action="depth" data-depth="{key}" '
+        f'<button type="button" class="tab" data-action="{action}" data-depth="{key}" '
         f'title="{esc(title)}" aria-label="{esc(title)}">{icon("level-" + key)}{esc(label)}'
         f'</button>'
         for key, label, title in _DEPTH_LEVELS
     )
-    return f'<div class="tabs tabs--sm" id="depth-switch">{buttons}</div>'
+    return f'<div class="tabs tabs--sm" id="{dom_id}">{buttons}</div>'
+
+
+_TREE_DETAIL_LEVELS = (
+    ('all', 'All', 'Every key and every value, as the file holds them'),
+    ('keys-off', 'No keys', 'Values only; a branch keeps its name'),
+    ('relevant', 'Relevant', 'What a day needs: no keys, no ids, the timeline on a line'),
+)
+
+
+def _tree_detail_switch():
+    buttons = ''.join(
+        f'<button type="button" class="tab" data-action="tree-detail" data-detail="{key}" '
+        f'title="{esc(title)}" aria-label="{esc(title)}">{esc(label)}</button>'
+        for key, label, title in _TREE_DETAIL_LEVELS
+    )
+    return f'<div class="tabs tabs--sm" id="tree-detail-switch">{buttons}</div>'
 
 
 _ZOOM_LABELS = (
@@ -541,7 +593,7 @@ def _shell(config, *, timeline, header_side, content, overlays='', zoom=''):
 <div class="container" data-shell="{"chart" if timeline is not None else "page"}" data-zoom="{esc(zoom)}" data-months="{esc(",".join(config.months))}" data-status-styles="{esc(json.dumps(settings_module.STATUS_STYLES))}" data-deadline-styles="{esc(json.dumps(settings_module.DEADLINE_STYLES))}">
   <header>
     <div class="wordmark">
-      {icon('diamond')}
+      <img class="wordmark__logo" src="/static/logo.svg" alt="">
       <h1>{esc(config.title)}</h1>
     </div>
     {header_side}
@@ -637,6 +689,19 @@ def _shell(config, *, timeline, header_side, content, overlays='', zoom=''):
             <span class="settings-option__hint">Leaving an editor with unsaved text is confirmed first.</span></span>
         </label>
       </section>
+
+      <section class="settings-group">
+        <h4 class="settings-group__title">About</h4>
+        <p class="settings-about__line">GanttBit <span class="settings-about__version">{esc(__version__)}</span></p>
+        <details class="settings-about">
+          <summary class="settings-about__summary">What is in this version</summary>
+          <div class="settings-about__notes">{render_markdown(settings_module.release_notes(__version__))}</div>
+        </details>
+        <p class="settings-group__note">Newer releases are listed on GitHub. The
+          link opens a new tab; this application never asks on its own.</p>
+        <a class="btn btn--outline btn--sm settings-about__link" href="{settings_module.RELEASES_URL}"
+           target="_blank" rel="noopener noreferrer">{icon('link')}Releases on GitHub</a>
+      </section>
     </div>
   </div>
 </div>
@@ -670,19 +735,28 @@ def _tabbar():
     return f'<nav class="tabbar" aria-label="Views">{tabs}</nav>'
 
 
+def _new_project_button(*, icon_only=False):
+    label = '' if icon_only else 'New project'
+    extra = ' btn--icon' if icon_only else ''
+    return (f'<button type="button" class="btn btn--outline btn--sm{extra}" '
+            f'data-action="project-new" title="New project" aria-label="New project">'
+            f'{icon("plus")}{label}</button>')
+
+
 def _nav(active, count):
-    """Two views over the same vault; the count belongs to both."""
+    """Two views over the same vault; the count and the new-card button belong to both."""
     links = ''.join(
         f'<a class="btn btn--sm {"btn--secondary" if key == active else "btn--ghost"}" '
         f'href="{href}">{esc(label)}</a>'
         for key, href, label in (('chart', '/', 'Chart'), ('hierarchy', '/hierarchy', 'Hierarchy'))
     )
-    return (f'<div class="header-side">{links}'
+    return (f'<div class="header-side">{links}{_new_project_button()}'
             f'<span class="header-stat"><strong>{count}</strong> projects</span></div>')
 
 
 def render_page(projects, *, window='', zoom='', today=None, settings=None):
     config = settings or settings_module.current()
+    inbox, projects = split_inbox(projects)
     start_from, end_at, window_key = resolve_range(window, today)
     col_width, zoom_key = resolve_zoom(zoom)
     timeline = Timeline(chart_spans(projects, config), settings=config, col_width=col_width,
@@ -691,7 +765,7 @@ def render_page(projects, *, window='', zoom='', today=None, settings=None):
     chart = gantt.render(projects, timeline,
                          detail_row=lambda project, group, at: render_detail_row(project, group, at, config),
                          settings=config)
-    todos_html, active_count, done_count = render_global_todos(projects, config)
+    todos_html, active_count, done_count = render_global_todos(projects, config, inbox=inbox)
 
     content = f"""{_project_list(projects, timeline, config, today)}
 
@@ -864,13 +938,57 @@ def _project_list(projects, timeline, settings, today):
     return f'''<div class="plist" data-surface="projects">
   <div class="plist__search">
     <input type="search" class="form-input" placeholder="Search projects, people, notes" aria-label="Search" data-change="search">
+    {_new_project_button(icon_only=True)}
   </div>
   {body}
 </div>'''
 
 
 # ─── Hierarchy: the whole vault as a tree, and as one document ───────────────
-def _entry_tree(value):
+def _entry(key, value, path):
+    """
+    One line of the tree: a leaf, or a branch that folds.
+
+    `data-key` is the name in the file, for the stylesheet to decide what a
+    level shows; `data-path` is where the value lives in the card, for an edit
+    to say what it changed. A branch is a `details`, so it folds with no
+    script and keeps folding when the page reloads under a level.
+    """
+    if isinstance(value, dict):
+        value = {k: v for k, v in value.items() if not str(k).startswith('_')}
+    if isinstance(value, list) and value and not any(isinstance(item, dict) for item in value):
+        # A list of plain values is one line, not a branch: three platforms
+        # or two flags are read at a glance, and each is still its own value.
+        items = ''.join(f'<span class="tree__item">{_leaf(item, f"{path}.{index}").strip()}</span>'
+                        for index, item in enumerate(value))
+        return (f'<li class="tree__entry tree__entry--list" data-key="{esc(key)}">'
+                f'<span class="tree__key">{esc(key)}</span> <span class="tree__list">{items}</span></li>')
+    is_branch = isinstance(value, (dict, list)) and bool(value)
+    if not is_branch:
+        return (f'<li class="tree__entry" data-key="{esc(key)}">'
+                f'<span class="tree__key">{esc(key)}</span>{_leaf(value, path)}</li>')
+    return (f'<li class="tree__entry tree__entry--branch" data-key="{esc(key)}"><details open>'
+            f'<summary><span class="tree__key">{esc(key)}</span></summary>'
+            f'{_entry_tree(value, path)}</details></li>')
+
+
+def _leaf(value, path):
+    """A value as the file holds it; an empty one says so rather than vanish."""
+    if isinstance(value, bool):
+        text = 'true' if value else 'false'
+    elif isinstance(value, (dict, list)):
+        return ' <span class="tree__empty">empty</span>'
+    else:
+        text = '' if value is None else str(value)
+    editable = f' data-path="{esc(path)}" tabindex="0" title="Double-click to edit"'
+    if not text.strip():
+        return f' <span class="tree__empty tree__leaf"{editable}>empty</span>'
+    if '\n' in text:
+        return f'<div class="tree__text tree__leaf"{editable}>{esc(text)}</div>'
+    return f' <span class="tree__value tree__leaf"{editable}>{esc(text)}</span>'
+
+
+def _entry_tree(value, path=''):
     """
     Every value a card holds, as it holds it.
 
@@ -879,36 +997,92 @@ def _entry_tree(value):
     disappearing, and a key nobody in this codebase knows about is rendered
     like any other.
     """
+    def join(part):
+        return f'{path}.{part}' if path else str(part)
+
     if isinstance(value, dict):
-        items = ''.join(
-            f'<li class="tree__entry"><span class="tree__key">{esc(key)}</span>'
-            f'{_entry_tree(item)}</li>'
-            for key, item in value.items() if not str(key).startswith('_')
-        )
+        items = ''.join(_entry(key, item, join(key))
+                        for key, item in value.items() if not str(key).startswith('_'))
         return f'<ul>{items}</ul>' if items else ''
 
     if isinstance(value, list):
-        if not value:
-            return ' <span class="tree__empty">empty</span>'
-        items = ''.join(
-            f'<li class="tree__entry"><span class="tree__key">'
-            f'{esc(item.get("id", "?"))}</span>'
-            f'{_entry_tree({k: v for k, v in item.items() if k != "id"})}</li>'
-            if isinstance(item, dict)
-            else f'<li class="tree__entry"><span class="tree__value">{esc(item)}</span></li>'
-            for item in value
-        )
+        items = ''
+        for index, item in enumerate(value):
+            if isinstance(item, dict):
+                # An object in a list is addressed by its id, as the file does.
+                identity = str(item.get('id', '') or '') or str(index)
+                items += _entry(identity, {k: v for k, v in item.items() if k != 'id'},
+                                join(identity))
+            else:
+                items += (f'<li class="tree__entry" data-key="{esc(index)}">'
+                          f'{_leaf(item, join(index)).lstrip()}</li>')
         return f'<ul>{items}</ul>'
 
-    if isinstance(value, bool):
-        return f' <span class="tree__value">{"true" if value else "false"}</span>'
+    return _leaf(value, path)
 
-    text = '' if value is None else str(value)
-    if not text.strip():
-        return ' <span class="tree__empty">empty</span>'
-    if '\n' in text:
-        return f'<div class="tree__text">{esc(text)}</div>'
-    return f' <span class="tree__value">{esc(text)}</span>'
+
+def _tree_fields(project):
+    """Everything the card says, the body last because it is last in the file."""
+    data = {key: value for key, value in project.items() if key != 'name'}
+    fields = _entry_tree(data)
+    body = str(project.get('_body') or '').strip()
+    if body:
+        # The body is not an entry: it is the text under `## Notes`, addressed
+        # as such so an edit rewrites that and nothing else.
+        fields = fields[:-len('</ul>')] + (
+            f'<li class="tree__entry" data-key="notes"><span class="tree__key">'
+            f'{esc(NOTES_HEADING)}</span>{_leaf(body, "_body")}</li></ul>')
+    return fields
+
+
+def _tree_summary(project, settings):
+    """
+    Everything the levels can show of a project, on its one line.
+
+    All of it is always here; the root attribute says which parts the level
+    reads. One markup, no second state.
+    """
+    span = project_span(project, settings)
+    when = (f'{format_date_long(span[0], settings)} → '
+            f'{format_date_long(span[1], settings)}') if span else 'no span declared'
+    status = str(project.get('status', 'active')).lower()
+    style = settings_module.STATUS_STYLES.get(status, settings_module.STATUS_FALLBACK)
+
+    dates = project.get('dates') or {}
+    deadline_raw = dates.get('deadline_text') or dates.get('target_delivery') or ''
+    deadline = ''
+    if deadline_raw:
+        deadline_type = str(dates.get('deadline_type', 'soft')).lower()
+        deadline_style = settings_module.DEADLINE_STYLES.get(
+            deadline_type, settings_module.DEADLINE_STYLES['soft'])
+        deadline = (f'<span class="deadline-pill tree__deadline" style="background:'
+                    f'{deadline_style["bg"]};color:{deadline_style["fg"]}">'
+                    f'{esc(format_date_long(deadline_raw, settings))} '
+                    f'[{esc(deadline_type.upper())}]</span>')
+
+    people = []
+    for row in project_tasks(project, settings):
+        if row['who'] not in people:
+            people.append(row['who'])
+    crowd = ''.join(f'<span class="tree__who">{esc(who)}</span>' for who in people)
+
+    return (f'<span class="prio-badge">{esc(project.get("priority", ""))}</span> '
+            f'<strong>{esc(project.get("name", project["id"]))}</strong> '
+            f'<span class="tree__signals">'
+            f'<span class="status-pill" style="background:{style["bg"]};color:{style["fg"]}">'
+            f'{esc(status.upper())}</span> '
+            f'<span class="tree__when">{esc(when)}</span> {deadline}</span>'
+            f'<span class="tree__people">{crowd}</span>')
+
+
+def _inbox_tree(inbox):
+    """The inbox as its own list above the projects: it is not one of them."""
+    if inbox is None:
+        return ''
+    return (f'<ul class="tree tree--inbox"><li class="tree__project" data-project="{esc(inbox["id"])}">'
+            f'<details open><summary><strong>{esc(inbox.get("name", inbox["id"]))}</strong> '
+            f'<span class="tree__when">notes of no project</span></summary>'
+            f'{_tree_fields(inbox)}</details></li></ul>')
 
 
 def _tree(projects, settings):
@@ -921,31 +1095,12 @@ def _tree(projects, settings):
         if not members:
             continue
 
-        items = []
-        for project in members:
-            span = project_span(project, settings)
-            when = (f'{format_date_long(span[0], settings)} → '
-                    f'{format_date_long(span[1], settings)}') if span else 'no span declared'
-            status = str(project.get('status', 'active')).lower()
-            style = settings_module.STATUS_STYLES.get(status, settings_module.STATUS_FALLBACK)
-
-            # The body is the last thing in the file, so it is the last thing here.
-            data = {key: value for key, value in project.items() if key != 'name'}
-            body = str(project.get('_body') or '').strip()
-            if body:
-                data[NOTES_HEADING] = body
-            fields = _entry_tree(data)
-
-            items.append(
-                f'<li class="tree__project"><details open>'
-                f'<summary>'
-                f'<span class="prio-badge">{esc(project.get("priority", ""))}</span> '
-                f'<strong>{esc(project.get("name", project["id"]))}</strong> '
-                f'<span class="status-pill" style="background:{style["bg"]};color:{style["fg"]}">'
-                f'{esc(status.upper())}</span> '
-                f'<span class="tree__when">{esc(when)}</span>'
-                f'</summary>'
-                f'{fields}</details></li>')
+        items = [
+            f'<li class="tree__project" data-project="{esc(project["id"])}"><details open>'
+            f'<summary>{_tree_summary(project, settings)}</summary>'
+            f'{_tree_fields(project)}</details></li>'
+            for project in members
+        ]
 
         # The live list is the tree; only a closing group announces itself.
         if is_display_group(group):
@@ -970,14 +1125,21 @@ def render_hierarchy_page(projects, markdown, *, settings=None):
     snapshot, and the way to edit many cards at once.
     """
     config = settings or settings_module.current()
+    inbox, projects = split_inbox(projects)
 
     content = f"""<div class="gantt-box">
-    <div class="tabs">
-      <button type="button" class="tab tab--active" data-action="view-tab" data-tab="structure">Structure</button>
-      <button type="button" class="tab" data-action="view-tab" data-tab="markdown">Markdown</button>
+    <div class="view-toolbar">
+      <div class="tabs">
+        <button type="button" class="tab tab--active" data-action="view-tab" data-tab="structure">Structure</button>
+        <button type="button" class="tab" data-action="view-tab" data-tab="markdown">Markdown</button>
+      </div>
+      <div class="view-toolbar__actions" id="tree-controls">
+        {_depth_switch(action='tree-depth', dom_id='tree-depth-switch')}
+        {_tree_detail_switch()}
+      </div>
     </div>
 
-    <div id="view-structure" class="view-panel">{_tree(projects, config)}</div>
+    <div id="view-structure" class="view-panel">{_inbox_tree(inbox)}{_tree(projects, config)}</div>
 
     <div id="view-markdown" class="view-panel" hidden>
       <p class="view-hint">Every card, in the order the chart draws them. A block

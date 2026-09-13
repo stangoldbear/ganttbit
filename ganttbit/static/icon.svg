@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 556 556" role="img" aria-label="GanttBit">
+<clipPath id="gem"><path d="M328.5 10H471A64 64 0 0 1 535 74V482A64 64 0 0 1 471 546H85A64 64 0 0 1 21 482V323.5A64 64 0 0 1 39.5 278.1L283.5 28.9A64 64 0 0 1 328.5 10Z"/></clipPath>
+<path d="M328.5 10H471A64 64 0 0 1 535 74V482A64 64 0 0 1 471 546H85A64 64 0 0 1 21 482V323.5A64 64 0 0 1 39.5 278.1L283.5 28.9A64 64 0 0 1 328.5 10Z" fill="#8C1F2C"/>
+<g clip-path="url(#gem)" fill="#E43949">
+<path d="M304 -24L577 -4L393 163Z"/><path d="M393 163L549 572L159 398Z"/><path d="M-13 289L159 398L-3 560H-23Z"/>
+<path d="M159 163H393L159 398Z" fill="#EB919A"/>
+<rect x="142" y="220" width="25" height="114" rx="12.5" fill="#fff"/>
+</g>
+<path d="M328.5 10H471A64 64 0 0 1 535 74V482A64 64 0 0 1 471 546H85A64 64 0 0 1 21 482V323.5A64 64 0 0 1 39.5 278.1L283.5 28.9A64 64 0 0 1 328.5 10Z" fill="none" stroke="#7F1B2A" stroke-width="12"/>
+</svg>

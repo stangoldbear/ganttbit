@@ -8,11 +8,13 @@ the server never changes.
 """
 
 import re
+import unicodedata
 from datetime import datetime
 
 from . import schema, settings as settings_module
+from .domain import display_group
 from .markup import render_markdown
-from .repository import csv_to_list, ensure_dict
+from .repository import SAFE_ID_RE, csv_to_list, ensure_dict
 
 
 class ApiError(Exception):
@@ -53,6 +55,71 @@ def _raw_update_project(repository, project_id, params):
         repository.write_raw(project_id, text)
     except ValueError as exc:
         raise ApiError(str(exc))
+
+
+def _set_value(data, params, _now):
+    """
+    One value at a path, from the structure view.
+
+    The path walks the card as the tree prints it: a key steps into a map, an
+    id or an index into a list. Only a value that exists can be set, so a typo
+    cannot grow a card. A path the schema knows is validated as the form
+    validates it; the rest is stored as typed, which is what the file held.
+    """
+    path = str(params.get('path', '')).strip()
+    if not path:
+        raise ApiError('Missing `path`.')
+    value = params.get('value', '')
+    if path == '_body':
+        data['_new_body'] = str(value)
+        return {'value': str(value).strip()}
+
+    parent, key = _walk(data, path)
+    entry = schema.entry_for(path)
+    existing = parent[key]
+    if entry and entry['readonly']:
+        raise ApiError(f'`{path}` is not edited by hand: the list order sets it.')
+    if entry:
+        stored = schema.coerce(entry, value)
+    elif isinstance(existing, bool):
+        stored = str(value).strip().lower() in ('true', '1', 'yes', 'on')
+    elif isinstance(existing, list):
+        stored = csv_to_list(value)
+    else:
+        stored = '' if value is None else str(value).strip()
+    parent[key] = stored
+    return {'value': stored}
+
+
+def _walk(data, path):
+    """The container and the key of the value at `path`, or a 404."""
+    parts = path.split('.')
+    cursor = data
+    for part in parts[:-1]:
+        cursor = _step(cursor, part, path)
+    last = parts[-1]
+    if isinstance(cursor, list):
+        return cursor, _index_of(cursor, last, path)
+    if isinstance(cursor, dict) and last in cursor:
+        return cursor, last
+    raise ApiError(f'No value at {path}.', status=404)
+
+
+def _step(cursor, part, path):
+    if isinstance(cursor, dict) and part in cursor:
+        return cursor[part]
+    if isinstance(cursor, list):
+        return cursor[_index_of(cursor, part, path)]
+    raise ApiError(f'No value at {path}.', status=404)
+
+
+def _index_of(items, part, path):
+    for index, item in enumerate(items):
+        if isinstance(item, dict) and str(item.get('id', '')) == part:
+            return index
+    if part.isdigit() and int(part) < len(items):
+        return int(part)
+    raise ApiError(f'No value at {path}.', status=404)
 
 
 def _add_todo(data, params, now):
@@ -269,6 +336,7 @@ def _require_todo_id(params):
 ROUTES = {
     'update': _update_project,
     'advanced-update': _advanced_update_project,
+    'set': _set_value,
     'todo/add': _add_todo,
     'todo/update': _update_todo,
     'todo/toggle': _toggle_todo,
@@ -343,6 +411,46 @@ def _placement(data, group, rank):
     return {'status': status, 'priority': str(rank)}
 
 
+def _slug(name):
+    """`Résumé builder` → `resume-builder`: an id you can type at a shell."""
+    ascii_name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode()
+    return re.sub(r'[^a-z0-9]+', '-', ascii_name.lower()).strip('-')
+
+
+def _create_project(repository, params, _now):
+    """
+    A card from a name alone.
+
+    The id is the name as a slug unless one is given, the position is the end
+    of the live list, and nothing else is written: every other field already
+    has a meaning when absent, so the card is as small as the format allows.
+    """
+    name = str(params.get('name', '')).strip()
+    if not name:
+        raise ApiError('The project needs a name.')
+    project_id = str(params.get('id') or _slug(name)).strip()
+    if not SAFE_ID_RE.match(project_id):
+        raise ApiError('An id may only hold letters, digits, . _ and -.')
+    if project_id == settings_module.INBOX_ID:
+        raise ApiError(f'`{project_id}` is reserved for the notes of no project.')
+    if repository.exists(project_id):
+        raise ApiError(f'A card with the id {project_id} already exists.', status=409)
+
+    live = [project for project in repository.list_all()
+            if display_group(project, repository.settings) == settings_module.LIVE_GROUP]
+    rank = 1 + max((project['_prio_num'] for project in live), default=0)
+    repository.save(project_id, {'id': project_id, 'name': name, 'type': 'project',
+                                 'priority': str(rank), 'status': 'active'})
+    return {'project': project_id}
+
+
+def _create_inbox(repository):
+    """The inbox exists from the first note on; nobody has to create it."""
+    repository.save(settings_module.INBOX_ID, {
+        'id': settings_module.INBOX_ID, 'name': settings_module.INBOX_TITLE,
+        'type': 'inbox', 'priority': '0', 'status': 'active'})
+
+
 def _write_vault_markdown(repository, params, _now):
     """
     Apply a whole-vault document: one card per `# title` block.
@@ -361,6 +469,7 @@ def _write_vault_markdown(repository, params, _now):
 
 
 BATCH_ROUTES = {
+    'create': _create_project,
     'reorder': _reorder_projects,
     'markdown': _write_vault_markdown,
 }
@@ -431,6 +540,8 @@ def dispatch(repository, project_id, action, params, *, now=None):
         mutator = ROUTES.get(action)
         if mutator is None:
             raise ApiError(f'Unknown action: {action}', status=404)
+        if project_id == settings_module.INBOX_ID and not repository.exists(project_id):
+            _create_inbox(repository)
         _require_project(repository, project_id)
 
         # A mutator may hand back what it created or moved, so the browser can

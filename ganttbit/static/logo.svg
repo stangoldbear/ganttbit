@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1329 560" role="img" aria-label="GanttBit">
+<clipPath id="gem"><path d="M314.5 10H457A64 64 0 0 1 521 74V482A64 64 0 0 1 457 546H71A64 64 0 0 1 7 482V323.5A64 64 0 0 1 25.5 278.1L269.5 28.9A64 64 0 0 1 314.5 10Z"/></clipPath>
+<path d="M314.5 10H457A64 64 0 0 1 521 74V482A64 64 0 0 1 457 546H71A64 64 0 0 1 7 482V323.5A64 64 0 0 1 25.5 278.1L269.5 28.9A64 64 0 0 1 314.5 10Z" fill="#8C1F2C"/>
+<g clip-path="url(#gem)" fill="#E43949">
+<path d="M290 -24L563 -4L379 163Z"/><path d="M379 163L535 572L145 398Z"/><path d="M-27 289L145 398L-17 560H-37Z"/>
+<path d="M145 163H379L145 398Z" fill="#EB919A"/>
+<rect x="128" y="220" width="25" height="114" rx="12.5" fill="#fff"/>
+</g>
+<path d="M314.5 10H457A64 64 0 0 1 521 74V482A64 64 0 0 1 457 546H71A64 64 0 0 1 7 482V323.5A64 64 0 0 1 25.5 278.1L269.5 28.9A64 64 0 0 1 314.5 10Z" fill="none" stroke="#7F1B2A" stroke-width="12"/>
+<g fill="#2682E8" stroke="#10375E" stroke-width="20">
+<rect x="585" y="11" width="388" height="132" rx="22"/>
+<rect x="585" y="214" width="534" height="132" rx="22"/>
+<rect x="585" y="416" width="534" height="132" rx="22"/>
+<rect x="1184" y="416" width="134" height="132" rx="22" fill="#E5AA36"/>
+</g>
+</svg>

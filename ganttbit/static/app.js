@@ -17,9 +17,13 @@
   var LABEL_W_KEY = 'dah_label_width';
   var WINDOW_KEY = 'dah_window';
   var ZOOM_KEY = 'dah_zoom';
-  var SCROLL_KEY = 'dah_scroll';   // per tab: where you were, not how you work
+  // Per tab and per page: where you were, not how you work. The chart and the
+  // hierarchy are different heights, so one's position is the other's void.
+  var SCROLL_KEY = 'dah_scroll:' + location.pathname;
+  var FOCUS_KEY = 'dah_focus';     // per tab: the card the next load should land on
   var SURFACE_KEY = 'dah_surface';
   var PREFS_KEY = 'dah_prefs';
+  var TREE_KEY = 'dah_tree';       // the hierarchy page: tab, level, detail, folds
   var THEME_KEY = 'dah_theme';   // written here, read by theme.js before paint
 
 
@@ -753,6 +757,32 @@
       var level = this.current();
       all('#depth-switch .tab').forEach(function (tab) {
         tab.classList.toggle('tab--active', tab.dataset.depth === level);
+      });
+    }
+  };
+
+  /* ─── Landing on a card after a reload ─────────────────────────────────────
+     A save that reloads the page comes back where you were. A card you just
+     created is somewhere else, at the end of the list: it opens, and the page
+     goes to it instead. */
+  var Reveal = {
+    after: function (pid) {
+      try { sessionStorage.setItem(FOCUS_KEY, pid); } catch (err) { /* noop */ }
+    },
+
+    run: function () {
+      var pid = null;
+      try {
+        pid = sessionStorage.getItem(FOCUS_KEY);
+        sessionStorage.removeItem(FOCUS_KEY);
+      } catch (err) { return; }
+      if (!pid || !detailRow(pid)) return;      // another page, or the card is gone
+      setDetail(pid, true);
+      syncPanels();
+      var target = detailRow(pid);
+      // After Scroll.restore has had its own second frame.
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { target.scrollIntoView({ block: 'center' }); });
       });
     }
   };
@@ -1668,13 +1698,21 @@
 
     var counter = byId('global-todos-counter');
     if (!counter) return;
+    // Live projects only, as the server counts them: a finished project's
+    // notes are its own business.
     var open = 0, done = 0;
-    all('.todos-box[id^="todos-container-"]').forEach(function (box) {
+    all('.detail-row[data-detail-group="live"] .todos-box[id^="todos-container-"]').forEach(function (box) {
       open += box.querySelectorAll('.todo-item-row').length;
     });
-    all('.history-box').forEach(function (box) {
+    all('.detail-row[data-detail-group="live"] .history-box').forEach(function (box) {
       done += box.querySelectorAll('.todo-item-row').length;
     });
+    // The inbox has no panel to count from: its rows are only in the card.
+    var inbox = document.querySelector('.global-todo-card[data-inbox]');
+    if (inbox) {
+      open += inbox.querySelectorAll('.todo-group[data-group="open"] .todo-item-row').length;
+      done += inbox.querySelectorAll('.todo-group[data-group="done"] .todo-item-row').length;
+    }
     counter.textContent = open + ' open / ' + done + ' done';
   }
 
@@ -2034,6 +2072,226 @@
     sendOrder(order);
   }
 
+  /* ─── The hierarchy page ────────────────────────────────────────────────────
+     The tree folds with `details`, so the browser does the opening and the
+     closing; this remembers which tab, which level, how much of a line, and
+     the projects folded against their level, per browser like every other
+     preference. */
+  var Tree = {
+    state: { tab: 'structure', depth: 'details', detail: 'relevant', folds: {} },
+
+    load: function () {
+      try {
+        var stored = JSON.parse(localStorage.getItem(TREE_KEY) || 'null');
+        if (stored) Object.assign(this.state, stored);
+      } catch (err) { /* defaults */ }
+    },
+
+    save: function () {
+      try { localStorage.setItem(TREE_KEY, JSON.stringify(this.state)); } catch (err) { /* noop */ }
+    },
+
+    tab: function (name) {
+      all('.view-toolbar .tab[data-tab]').forEach(function (tab) {
+        tab.classList.toggle('tab--active', tab.dataset.tab === name);
+      });
+      ['structure', 'markdown'].forEach(function (panel) {
+        var node = byId('view-' + panel);
+        if (node) node.hidden = panel !== name;
+      });
+      var controls = byId('tree-controls');
+      if (controls) controls.hidden = name !== 'structure';
+      this.state.tab = name;
+      this.save();
+    },
+
+    /* A level is absolute: it opens or folds every project, and forgets what
+       was folded by hand against the previous one. Inside a project every
+       branch is open: the project is the fold, its branches are for reading. */
+    depth: function (level) {
+      this.state.folds = {};
+      this.apply(level);
+      this.save();
+    },
+
+    apply: function (level) {
+      var self = this;
+      document.documentElement.dataset.treeDepth = level;
+      var open = level === 'details';
+      all('.tree__project').forEach(function (item) {
+        var details = item.querySelector(':scope > details');
+        var fold = self.state.folds[item.dataset.project];
+        details.open = typeof fold === 'boolean' ? fold : open;
+      });
+      all('.tree__entry--branch > details').forEach(function (details) { details.open = true; });
+      all('#tree-depth-switch .tab').forEach(function (tab) {
+        tab.classList.toggle('tab--active', tab.dataset.depth === level);
+      });
+      this.state.depth = level;
+    },
+
+    detail: function (level) {
+      document.documentElement.dataset.treeDetail = level;
+      all('#tree-detail-switch .tab').forEach(function (tab) {
+        tab.classList.toggle('tab--active', tab.dataset.detail === level);
+      });
+      this.state.detail = level;
+      this.save();
+    },
+
+    /* A project folded or opened by hand, against what its level says. */
+    folded: function (item) {
+      var details = item.querySelector(':scope > details');
+      var expected = this.state.depth === 'details';
+      if (details.open === expected) delete this.state.folds[item.dataset.project];
+      else this.state.folds[item.dataset.project] = details.open;
+      this.save();
+    },
+
+    restore: function () {
+      if (!byId('view-structure')) return;
+      this.load();
+      this.tab(this.state.tab);
+      this.apply(this.state.depth);
+      this.detail(this.state.detail);
+      var self = this;
+      document.addEventListener('toggle', function (event) {
+        var item = event.target.parentNode;
+        if (item && item.classList && item.classList.contains('tree__project')) self.folded(item);
+      }, true);
+    }
+  };
+
+  /* A value in the tree becomes a field where it stands, with the panel's
+     Save and Cancel, and goes to the card at the path the tree printed. */
+  function startTreeEdit(leaf) {
+    if (leaf.dataset.editing) return;
+    var project = leaf.closest('.tree__project');
+    if (!project) return;
+    var pid = project.dataset.project;
+    var path = leaf.dataset.path;
+    var empty = leaf.classList.contains('tree__empty');
+    var current = empty ? '' : leaf.textContent;
+    var multi = leaf.classList.contains('tree__text');
+
+    var box = document.createElement('div');
+    box.className = 'tree__edit';
+    var input = document.createElement(multi ? 'textarea' : 'input');
+    if (!multi) input.type = 'text';
+    input.className = 'form-input';
+    input.value = current;
+    input.setAttribute('aria-label', path);
+
+    var actions = document.createElement('div');
+    actions.className = 'editable-actions';
+    var save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'btn btn--default btn--sm';
+    save.textContent = 'Save';
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn--secondary btn--sm';
+    cancel.textContent = 'Cancel';
+    actions.append(save, cancel);
+
+    function close() {
+      box.replaceWith(leaf);
+      delete leaf.dataset.editing;
+      leaf.focus();
+    }
+    function discard() {
+      if (input.value === current) return close();
+      guard('cancel', DISCARD, close);
+    }
+    function commit() {
+      guard('save', SAVE_FIELD, function () {
+        save.disabled = true;
+        projectApi(pid, 'set', { path: path, value: input.value }).then(function (result) {
+          var value = result.value;
+          var text = Array.isArray(value) ? value.join(', ') : String(value);
+          leaf.classList.toggle('tree__empty', !text.trim());
+          leaf.classList.toggle('tree__value', !!text.trim() && !multi);
+          leaf.textContent = text.trim() ? text : 'empty';
+          close();
+          Toast.success('Saved.');
+        }).catch(function () { save.disabled = false; });
+      });
+    }
+    save.addEventListener('click', commit);
+    cancel.addEventListener('click', discard);
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') { event.preventDefault(); discard(); }
+      if (event.key === 'Enter' && !multi) { event.preventDefault(); commit(); }
+    });
+
+    leaf.dataset.editing = '1';
+    leaf.replaceWith(box);
+    box.append(input, actions);
+    input.focus();
+  }
+
+  /* One field, one button: the id and everything else are the server's call. */
+  function openNewProject() {
+    var overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+    var box = document.createElement('div');
+    box.className = 'dialog';
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+
+    var title = document.createElement('h3');
+    title.className = 'dialog__title';
+    title.textContent = 'New project';
+
+    var label = document.createElement('label');
+    label.className = 'dialog__field';
+    var caption = document.createElement('span');
+    caption.className = 'field-label';
+    caption.textContent = 'Name';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'form-input';
+    input.placeholder = 'What the card is called';
+    label.append(caption, input);
+
+    var actions = document.createElement('div');
+    actions.className = 'dialog__actions';
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn--secondary btn--sm';
+    cancel.textContent = 'Cancel';
+    var create = document.createElement('button');
+    create.type = 'button';
+    create.className = 'btn btn--default btn--sm';
+    create.textContent = 'Create';
+
+    function close() { overlay.remove(); Dialog.open = null; }
+    function submit() {
+      var name = input.value.trim();
+      if (!name) return input.focus();
+      close();
+      post('/api/project/_batch/create', { name: name }).then(function (result) {
+        Reveal.after(result.project);
+        location.reload();
+      }).catch(function () { /* reported */ });
+    }
+    cancel.addEventListener('click', close);
+    create.addEventListener('click', submit);
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); submit(); }
+    });
+    overlay.addEventListener('mousedown', function (event) {
+      if (event.target === overlay) close();
+    });
+
+    actions.append(cancel, create);
+    box.append(title, label, actions);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    Dialog.open = close;
+    input.focus();
+  }
+
   function openMove(pid) {
     var overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
@@ -2216,8 +2474,18 @@
         if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' });
       }
     },
+    /* From the aggregated notes: open the panel and go to it. On a phone the
+       panel lives under its card in the list, so that is the surface shown. */
+    'go-project': function (el, data) {
+      setDetail(data.project, true);
+      if (narrow()) Surface.set('projects');
+      syncPanels();
+      var row = detailRow(data.project);
+      if (row && row.scrollIntoView) row.scrollIntoView({ block: 'start' });
+    },
     'surface': function (el, data) { Surface.set(data.surfaceTab); },
     'project-move': function (el, data) { openMove(data.project); },
+    'project-new': function () { openNewProject(); },
     'toggle-history': function (el, data) {
       setHistory(data.project, isHidden(byId('history-box-' + data.project)));
     },
@@ -2392,15 +2660,9 @@
       if (event && event.target === el) setSettings(false);
     },
     'zoom': function (el, data) { ChartWindow.go({ zoom: data.zoom }); },
-    'view-tab': function (el, data) {
-      all('.tabs .tab').forEach(function (tab) {
-        tab.classList.toggle('tab--active', tab === el);
-      });
-      ['structure', 'markdown'].forEach(function (name) {
-        var panel = byId('view-' + name);
-        if (panel) panel.hidden = name !== data.tab;
-      });
-    },
+    'view-tab': function (el, data) { Tree.tab(data.tab); },
+    'tree-depth': function (el, data) { Tree.depth(data.depth); },
+    'tree-detail': function (el, data) { Tree.detail(data.detail); },
     'vault-markdown-save': function (el) {
       var editor = byId('vault-markdown');
       if (!editor) return;
@@ -2556,8 +2818,22 @@
       openField(view.closest('.editable-field'));
       return true;
     }
+
+    var leaf = target.closest('.tree__leaf');
+    if (leaf) {
+      startTreeEdit(leaf);
+      return true;
+    }
     return false;
   }
+
+  /* The tree's values are focusable; Enter opens them like a panel field. */
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter' || !event.target.classList) return;
+    if (!event.target.classList.contains('tree__leaf')) return;
+    event.preventDefault();
+    startTreeEdit(event.target);
+  });
 
   function coarsePointer() {
     return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
@@ -2617,10 +2893,10 @@
     }
     /* An action can sit on an ancestor of what was clicked, and an overlay's
        backdrop is one, so cancelling the default then cancels the click
-       itself: a checkbox stops toggling, a label stops reaching its box. The
-       action belongs to the element that declares it; the default belongs to
-       the control that was pressed. */
-    if (!event.target.closest('input, select, textarea, label')) {
+       itself: a checkbox stops toggling, a label stops reaching its box, a
+       summary stops opening its details. The action belongs to the element
+       that declares it; the default belongs to the control that was pressed. */
+    if (!event.target.closest('input, select, textarea, label, summary')) {
       event.preventDefault();
     }
     handler(target, target.dataset, event);
@@ -3117,7 +3393,9 @@
     // title no longer renames: it must not say that it does.
     titleHints();
     window.addEventListener('resize', titleHints);
+    Tree.restore();
     Scroll.restore();
+    Reveal.run();
     Scroll.watch();
     // Column resizing and row reordering both need a pointing device. On touch
     // the CSS hides their handles; skipping the wiring here also keeps a width

@@ -84,6 +84,12 @@ Neither group appears in the aggregated action list, so finished work stops
 asking for attention. `priority` is the project's position in that one list, so
 the number in the card is the number on the screen.
 
+A note that belongs to no project yet goes in the **Inbox**, the first card of
+the aggregated list: write it there and it lands in `inbox.md`, a card like any
+other on disk, which the chart and the project count leave out. **New project**
+in the header asks for a name and nothing else, and comes back with the new
+card's panel open.
+
 Every project carries a coloured band down its left edge, and the colour is its
 rank: full accent at the top of the list, fading to a near-grey at the bottom.
 With a dozen projects two neighbours barely differ, because the band is meant
@@ -111,10 +117,15 @@ device: resizing the label column, and dragging rows to reorder them.
 ## Two views over the vault
 
 The chart is one reading of the cards; **Hierarchy** is the other, and the
-header switches between them. *Structure* lists every project and then every
-value the card holds, under the names the card uses (the keys this codebase
-knows nothing about included, and the `## Notes` body) with each project
-foldable on its own. *Markdown* is every card concatenated in the same order,
+header switches between them. *Structure* is the vault as a tree: every
+project, then every value the card holds under the names the card uses (the
+keys this codebase knows nothing about included, and the `## Notes` body),
+every branch foldable. It reads at the chart's four levels, *Compact*,
+*Projects*, *Stakeholders* and *All details*, and at three amounts of detail:
+*All*, *No keys*, and *Relevant*, which drops the keys, the ids and the empty
+values and prints the timeline as one line per row. Double-click a value to
+edit it where it stands; the change goes to the card at that path, validated
+where the schema knows the field. *Markdown* is every card concatenated in the same order,
 editable in one go: a block whose
 `- id:` is unknown creates a card, and a card whose block is not in the text is
 left alone. Nothing is ever deleted from that screen. The same document
@@ -251,7 +262,7 @@ Two rules worth keeping:
 python3 -m unittest test_ganttbit -v
 ```
 
-114 tests, standard library only. The sample vault is the fixture: it contains
+122 tests, standard library only. The sample vault is the fixture: it contains
 a blocked project, a malformed card, a project with no timeline task, notes
 with quotes and newlines, deliberately awkward names and past/future tasks.
 

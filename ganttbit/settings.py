@@ -13,6 +13,7 @@ their own fixture path.
 
 import ipaddress
 import os
+import re
 import secrets
 import tomllib
 from dataclasses import dataclass
@@ -47,6 +48,13 @@ DISPLAY_GROUPS = {
     DONE_GROUP:    {'title': 'DONE', 'rgb': (0, 105, 92)},
     DROPPED_GROUP: {'title': 'DROPPED', 'rgb': (107, 114, 128)},
 }
+
+# One reserved card for the notes that belong to no project yet. On disk it is
+# a card like any other, so it can be read, grepped and archived with the rest;
+# the chart, the list and the project count leave it out, the aggregated
+# actions put it first, and the first note written creates it.
+INBOX_ID = 'inbox'
+INBOX_TITLE = 'Inbox'
 
 DEADLINE_STYLES = {
     'hard': {'bg': '#ffebee', 'fg': '#c62828'},
@@ -84,6 +92,57 @@ DEFAULT_ZOOM = 'day'
 ROW_H = 34           # project row (one line: identity, signals, actions)
 COMPACT_ROW_H = 22   # the same row at the Compact level: rank, name, span
 SUB_ROW_H = 20       # resource row
+
+# ─── The project, as opposed to the deployment ───────────────────────────────
+# Upstream, not a setting: a fork points at its own releases by editing this
+# line, and an organisation running the tool has nothing to configure here.
+CHANGELOG_PATH = os.path.join(BASE_DIR, 'CHANGELOG.md')
+RELEASES_URL = 'https://github.com/stangoldbear/ganttbit/releases/latest'
+
+_VERSION_HEADING = r'^##\s+\[?{}\]?\b'
+
+
+def _unwrap(lines):
+    """
+    Join a hard-wrapped line back onto the one above it.
+
+    The CHANGELOG is written to 80 columns and continues a bullet by indenting
+    it, which is the markdown convention and also the only signal needed here.
+    The renderer takes a newline literally, on purpose, because a card's notes
+    come from a textarea where pressing Enter means it. A file wrapped by its
+    author is the other case, so the wrapping comes out here rather than the
+    renderer learning to guess which of the two it is looking at.
+    """
+    joined = []
+    for line in lines:
+        if joined and joined[-1].strip() and line[:1].isspace() and line.strip():
+            joined[-1] = joined[-1].rstrip() + ' ' + line.strip()
+        else:
+            joined.append(line)
+    return joined
+
+
+def release_notes(version, path=CHANGELOG_PATH):
+    """
+    The body of the `## <version>` section of the CHANGELOG, as markdown.
+
+    Yields nothing when the file is missing or names no such version, and
+    never raises: a Settings panel that cannot say what changed is a smaller
+    problem than a page that refuses to open because of it.
+    """
+    try:
+        with open(path, encoding='utf-8') as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return ''
+
+    heading = re.compile(_VERSION_HEADING.format(re.escape(version)))
+    start = next((i for i, line in enumerate(lines) if heading.match(line)), None)
+    if start is None:
+        return ''
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].startswith('## ')), len(lines))
+    return '\n'.join(_unwrap(lines[start + 1:end])).strip()
 
 
 class SettingsError(Exception):

@@ -14,7 +14,7 @@ from . import settings as settings_module
 from .cardmd import build_card, parse_card
 from .domain import display_group, group_rank
 
-_SAFE_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
+SAFE_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
 
 def write_atomic(path, data):
     """
@@ -205,7 +205,7 @@ class ProjectRepository:
             if not project_id:
                 skipped.append((data.get('name', '(untitled)'), 'no `- id:` entry'))
                 continue
-            if not _SAFE_ID_RE.match(project_id):
+            if not SAFE_ID_RE.match(project_id):
                 skipped.append((project_id, 'an id may only hold letters, digits, . _ and -'))
                 continue
 

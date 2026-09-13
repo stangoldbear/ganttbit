@@ -21,7 +21,8 @@ import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta
 
-from ganttbit import gantt, markup, schema, settings as settings_module, view
+from ganttbit import (__version__, gantt, markup, schema,
+                      settings as settings_module, view)
 from ganttbit.api import ApiError, delete_attachment, dispatch, upload_attachment
 from ganttbit.domain import (
     Timeline, band_position, chart_spans, display_group, format_date_long,
@@ -366,6 +367,61 @@ class SettingsTest(unittest.TestCase):
     def test_missing_file_is_reported(self):
         with self.assertRaises(settings_module.SettingsError):
             settings_module.load('/nonexistent/settings.toml')
+
+
+class ReleaseNotesTest(unittest.TestCase):
+    """The Settings panel reads what shipped out of the CHANGELOG itself."""
+
+    CHANGELOG = ('# Changelog\n\n'
+                 '## 2.0.0 - 2026-10-01\n\n'
+                 '### Added\n\n- The newer thing.\n\n'
+                 '## 1.0.0 - 2026-09-13\n\n'
+                 'First public release.\n\n- The older thing.\n')
+
+    def _write(self, tmp, text=None):
+        path = os.path.join(tmp, 'CHANGELOG.md')
+        with open(path, 'w', encoding='utf-8') as handle:
+            handle.write(self.CHANGELOG if text is None else text)
+        return path
+
+    def test_a_section_stops_at_the_next_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            notes = settings_module.release_notes('2.0.0', self._write(tmp))
+        self.assertIn('The newer thing.', notes)
+        self.assertNotIn('The older thing.', notes)
+        self.assertNotIn('## 1.0.0', notes)
+
+    def test_the_last_section_runs_to_the_end_of_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            notes = settings_module.release_notes('1.0.0', self._write(tmp))
+        self.assertIn('First public release.', notes)
+        self.assertIn('The older thing.', notes)
+
+    def test_an_unknown_version_yields_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(settings_module.release_notes('9.9.9', self._write(tmp)), '')
+
+    def test_a_missing_changelog_is_not_a_reason_to_fail(self):
+        self.assertEqual(settings_module.release_notes('1.0.0', '/nonexistent/CHANGELOG.md'), '')
+
+    def test_a_bullet_wrapped_across_lines_arrives_as_one_item(self):
+        """The file is written to 80 columns; the panel is not that wide."""
+        wrapped = ('# Changelog\n\n## 1.0.0 - 2026-09-13\n\n'
+                   '- A bullet long enough that its author had to\n'
+                   '  wrap it, twice over, to stay inside the margin.\n'
+                   '- A second bullet.\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            notes = settings_module.release_notes('1.0.0', self._write(tmp, wrapped))
+        self.assertIn('had to wrap it, twice over, to stay', notes)
+        self.assertEqual(len(notes.splitlines()), 2)
+        rendered = markup.render_markdown(notes)
+        self.assertEqual(rendered.count('<li>'), 2)
+        self.assertNotIn('<p>', rendered)          # no continuation left stranded
+
+    def test_the_shipped_changelog_describes_the_running_version(self):
+        """Bumping __version__ without writing the section is caught here."""
+        self.assertTrue(settings_module.release_notes(__version__).strip(),
+                        f'CHANGELOG.md has no `## {__version__}` section')
 
 
 class VaultTestCase(unittest.TestCase):
@@ -879,6 +935,142 @@ class SchemaAndApiTest(VaultTestCase):
         self.assertEqual(self.repo.load(self.PROJECT)[0]['name'], 'Renamed')
 
 
+class CreateProjectTest(VaultTestCase):
+    def test_a_name_is_enough_and_the_card_lands_at_the_end_of_the_live_list(self):
+        result = dispatch(self.repo, '_batch', 'create', {'name': 'Résumé builder — v2'}, now=NOW)
+        self.assertEqual(result['project'], 'resume-builder-v2')
+        data, body = self.repo.load('resume-builder-v2')
+        self.assertEqual(data['name'], 'Résumé builder — v2')
+        self.assertEqual(data['status'], 'active')
+        self.assertEqual(body, '')
+        live = [p for p in self.repo.list_all() if p['status'] not in ('done', 'dropped')]
+        self.assertEqual(live[-1]['id'], 'resume-builder-v2')
+        self.assertEqual(data['priority'], str(len(live)))
+
+    def test_an_explicit_id_wins_over_the_slug(self):
+        dispatch(self.repo, '_batch', 'create', {'name': 'Watch app', 'id': 'proj-42'}, now=NOW)
+        self.assertTrue(self.repo.exists('proj-42'))
+
+    def test_a_duplicate_a_bad_id_and_an_empty_name_are_refused(self):
+        with self.assertRaises(ApiError) as caught:
+            dispatch(self.repo, '_batch', 'create', {'name': 'Navigation menu', 'id': 'project-1-navigation-menu'}, now=NOW)
+        self.assertEqual(caught.exception.status, 409)
+        for payload in ({'name': ''}, {'name': '   '}, {'name': 'X', 'id': '../escape'}):
+            with self.assertRaises(ApiError):
+                dispatch(self.repo, '_batch', 'create', payload, now=NOW)
+
+    def test_the_inbox_id_is_reserved(self):
+        with self.assertRaises(ApiError):
+            dispatch(self.repo, '_batch', 'create', {'name': 'Inbox'}, now=NOW)
+
+    def test_both_pages_carry_the_button(self):
+        projects = self.repo.list_all()
+        chart = view.render_page(projects, today=TODAY, settings=self.settings)
+        tree = view.render_hierarchy_page(projects, '', settings=self.settings)
+        self.assertEqual(chart.count('data-action="project-new"'), 2)   # header, and the phone's list
+        self.assertEqual(tree.count('data-action="project-new"'), 1)
+
+
+class InboxTest(VaultTestCase):
+    """Notes of no project live in one reserved card, created by the first note."""
+
+    def test_the_first_note_creates_the_card(self):
+        self.assertFalse(self.repo.exists('inbox'))
+        result = dispatch(self.repo, 'inbox', 'todo/add', {'text': 'Call the vendor'}, now=NOW)
+        data, _ = self.repo.load('inbox')
+        self.assertEqual(data['type'], 'inbox')
+        self.assertEqual(data['priority'], '0')
+        self.assertEqual([t['text'] for t in data['todos']], ['Call the vendor'])
+        self.assertEqual(result['todo']['text'], 'Call the vendor')
+
+    def test_the_inbox_is_out_of_the_chart_and_the_count_and_first_everywhere_else(self):
+        before = len(self.repo.list_all())
+        open_before = int(re.search(r'data-open="(\d+)"', view.render_page(
+            self.repo.list_all(), today=TODAY, settings=self.settings)).group(1))
+        dispatch(self.repo, 'inbox', 'todo/add', {'text': 'Call the vendor'}, now=NOW)
+        projects = self.repo.list_all()
+        self.assertEqual(projects[0]['id'], 'inbox')          # first card, first block
+        self.assertTrue(self.repo.vault_markdown().startswith('# Inbox\n'))
+
+        page = view.render_page(projects, today=TODAY, settings=self.settings)
+        self.assertNotIn('data-proj-id="inbox"', page)
+        self.assertIn(f'<strong>{before}</strong> projects', page)
+        self.assertIn('Call the vendor', page)
+        self.assertIn('id="new-todo-text-inbox"', page)
+        self.assertIn(f'data-open="{open_before + 1}"', page)
+        self.assertLess(page.index('data-card="inbox"'), page.index('data-card="project-1-navigation-menu"'))
+
+        tree = view.render_hierarchy_page(projects, '', settings=self.settings)
+        self.assertIn('class="tree tree--inbox"', tree)
+        self.assertLess(tree.index('tree--inbox'), tree.index('project-1-navigation-menu'))
+
+    def test_with_no_inbox_the_composer_is_still_there(self):
+        page = view.render_page(self.repo.list_all(), today=TODAY, settings=self.settings)
+        self.assertIn('id="new-todo-text-inbox"', page)
+        self.assertNotIn('tree--inbox', view.render_hierarchy_page(
+            self.repo.list_all(), '', settings=self.settings))
+
+
+class StructureViewTest(VaultTestCase):
+    """The hierarchy page: a tree that folds, and values that edit in place."""
+    PROJECT = 'project-1-navigation-menu'
+
+    def test_the_tree_folds_carries_the_levels_and_addresses_every_value(self):
+        page = view.render_hierarchy_page(self.repo.list_all(), '', settings=self.settings)
+        self.assertIn('id="tree-depth-switch"', page)
+        self.assertIn('id="tree-detail-switch"', page)
+        self.assertIn('data-action="tree-depth" data-depth="compact"', page)
+        self.assertIn(f'<li class="tree__project" data-project="{self.PROJECT}"><details open>', page)
+        self.assertIn('class="tree__entry tree__entry--branch" data-key="timeline"', page)
+        self.assertIn('data-path="dates.deadline_text"', page)
+        self.assertIn('data-path="_body"', page)
+        self.assertIn('class="tree__who"', page)          # the people, for the Stakeholders level
+        self.assertIn('class="deadline-pill tree__deadline"', page)
+        # A row in a list is addressed by its id, a bare value by its index.
+        self.assertRegex(page, r'data-path="timeline\.tasks\.task-1\.who"')
+        self.assertIn('data-path="tech_footprint.platforms.0"', page)
+
+    def test_set_walks_maps_lists_and_ids(self):
+        dispatch(self.repo, self.PROJECT, 'set', {'path': 'dates.deadline_text', 'value': '2026-12-01'}, now=NOW)
+        dispatch(self.repo, self.PROJECT, 'set', {'path': 'timeline.tasks.task-1.who', 'value': 'Grace Hopper'}, now=NOW)
+        dispatch(self.repo, self.PROJECT, 'set', {'path': 'tech_footprint.platforms.0', 'value': 'Web'}, now=NOW)
+        dispatch(self.repo, self.PROJECT, 'set', {'path': '_body', 'value': 'Rewritten notes.'}, now=NOW)
+        data, body = self.repo.load(self.PROJECT)
+        self.assertEqual(data['dates']['deadline_text'], '2026-12-01')
+        self.assertEqual(data['timeline']['tasks'][0]['who'], 'Grace Hopper')
+        self.assertEqual(data['tech_footprint']['platforms'][0], 'Web')
+        self.assertEqual(body.strip(), 'Rewritten notes.')
+
+    def test_set_validates_what_the_schema_knows_and_refuses_what_is_not_there(self):
+        data, _ = self.repo.load(self.PROJECT)
+        risk = data['risks_and_criticalities'][0]['id']
+        for path, value in (('status', 'whatever'), ('dates.deadline_type', 'medium'),
+                            ('priority', '3'),      # drag and drop owns it
+                            (f'risks_and_criticalities.{risk}.severity', 'apocalyptic')):
+            with self.assertRaises(ApiError, msg=path) as caught:
+                dispatch(self.repo, self.PROJECT, 'set', {'path': path, 'value': value}, now=NOW)
+            self.assertEqual(caught.exception.status, 400)
+        for path in ('nowhere', 'dates.nowhere', 'timeline.tasks.task-99.who', ''):
+            with self.assertRaises(ApiError, msg=path):
+                dispatch(self.repo, self.PROJECT, 'set', {'path': path, 'value': 'x'}, now=NOW)
+        after, _ = self.repo.load(self.PROJECT)
+        self.assertEqual(after['status'], data['status'])
+        self.assertNotIn('nowhere', after)
+
+    def test_set_keeps_the_type_the_file_had(self):
+        dispatch(self.repo, self.PROJECT, 'set', {'path': 'tech_footprint.content_impact', 'value': 'false'}, now=NOW)
+        data, _ = self.repo.load(self.PROJECT)
+        self.assertIs(data['tech_footprint']['content_impact'], False)
+
+
+class GlobalTodosTest(VaultTestCase):
+    def test_a_card_in_actions_and_notes_opens_its_project(self):
+        page = view.render_page(self.repo.list_all(), today=TODAY, settings=self.settings)
+        self.assertIn('data-action="go-project" data-project="project-1-navigation-menu"', page)
+        # The inbox has no project to go to.
+        self.assertNotIn('data-action="go-project" data-project="inbox"', page)
+
+
 class AttachmentApiTest(VaultTestCase):
     PROJECT = 'project-8-banner-defaults'
 
@@ -996,11 +1188,22 @@ class ViewTest(unittest.TestCase):
         self.assertIn('--label-w:340px', self.html)
         self.assertIn('--col-w:17px', self.html)
         head = self.html.split('<body>')[0]
-        # No external asset: the favicon is a data URI, and the SVG namespace
-        # inside it is an identifier, not a request.
+        # No external asset: everything the head names is served from /static/.
         self.assertNotIn('href="http', head)
         self.assertNotIn('src="http', head)
         self.assertIn('<script src="/static/theme.js">', head)   # before the first paint
+
+    def test_the_logo_is_one_drawing_shown_twice(self):
+        """The header and the docs page carry the same files, byte for byte."""
+        self.assertIn('<img class="wordmark__logo" src="/static/logo.svg" alt="">', self.html)
+        self.assertIn('<link rel="icon" href="/static/icon.svg">', self.html)
+        for name in ('logo.svg', 'icon.svg'):
+            with open(os.path.join(REPO_ROOT, 'ganttbit', 'static', name), 'rb') as f:
+                served = f.read()
+            with open(os.path.join(REPO_ROOT, 'docs', name), 'rb') as f:
+                self.assertEqual(served, f.read())
+            self.assertTrue(served.startswith(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox='))
+            self.assertLess(len(served), 4096)   # a drawing, not a trace of a bitmap
 
     def test_attachments_render_with_size_and_a_remove_button(self):
         card = next(p for p in self.projects if p['id'] == 'project-1-navigation-menu')
@@ -1225,6 +1428,27 @@ class ServerTest(VaultTestCase):
         self.assertEqual(status, 200)
         self.assertIn('attachment; filename="vault-', headers['Content-Disposition'])
         self.assertTrue(snapshot.startswith('# Navigation menu'))
+
+    def test_settings_names_the_version_and_what_shipped_in_it(self):
+        body = self.get('/')[1]
+        self.assertIn(f'<span class="settings-about__version">{__version__}</span>', body)
+        # the notes are the CHANGELOG section of the running version, rendered
+        # rather than linked to: whatever it says this release, it is in the page
+        self.assertIn('settings-about__notes', body)
+        notes = settings_module.release_notes(__version__)
+        self.assertTrue(notes)
+        self.assertIn(markup.render_markdown(notes), body)
+
+    def test_the_releases_link_leaves_but_the_application_never_does(self):
+        body, headers = self.get('/')[1:]
+        self.assertIn(f'href="{settings_module.RELEASES_URL}"', body)
+        self.assertIn('rel="noopener noreferrer"', body)
+        # a link the browser follows on a click, never a request this page makes:
+        # the policy still allows nothing but this origin to be reached.
+        policy = headers['Content-Security-Policy']
+        self.assertIn("default-src 'self'", policy)
+        self.assertNotIn('connect-src', policy)
+        self.assertNotIn('github.com', policy)
 
     def test_static_assets_are_served_and_traversal_is_blocked(self):
         self.assertIn('GanttBit', self.get('/static/app.css')[1])

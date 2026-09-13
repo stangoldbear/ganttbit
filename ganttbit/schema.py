@@ -153,6 +153,29 @@ def quick_fields():
 
 
 # ─── Nested path access ──────────────────────────────────────────────────────
+def entry_for(path, settings=None):
+    """
+    What the schema declares at `path`, or None.
+
+    The structure view edits any value the card holds; this is how a value the
+    schema knows gets the form's own validation, and one it does not know is
+    stored as the text it was.
+    """
+    for entry in quick_fields() + advanced_fields(settings):
+        if entry['path'] == path:
+            return entry
+    parts = path.split('.')
+    for section in row_sections(settings):
+        prefix = section['path'].split('.')
+        # <section>.<row id>.<column>
+        if parts[:len(prefix)] == prefix and len(parts) == len(prefix) + 2:
+            for column in section['columns']:
+                if column['key'] == parts[-1]:
+                    return {'kind': TEXT, 'choices': column['choices'],
+                            'label': column['label'], 'readonly': False}
+    return None
+
+
 _MISSING = object()
 
 
