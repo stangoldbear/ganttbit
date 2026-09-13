@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "GanttBit: what a markdown card becomes",
+    "subtitle": "The vault is read on every request, and an edit ends back in the same file",
+    "animation": "none",
+    "quality_profile": "showcase",
+    "legend": {
+      "mode": "auto",
+      "entries": {
+        "default": {
+          "label": "Read"
+        },
+        "emphasis": {
+          "label": "Main path"
+        },
+        "security": {
+          "label": "Checked before writing"
+        },
+        "dashed": {
+          "label": "Written back"
+        },
+        "database": {
+          "label": "The markdown files"
+        }
+      }
+    },
+    "views": [
+      {
+        "id": "out",
+        "label": "File to chart",
+        "focus": [
+          "card",
+          "fields",
+          "notes",
+          "timeline",
+          "text",
+          "chart"
+        ],
+        "note": "One card on disk becomes the bars, the lanes and the notes on screen."
+      },
+      {
+        "id": "back",
+        "label": "Chart to file",
+        "focus": [
+          "chart",
+          "edit",
+          "check",
+          "save",
+          "card"
+        ],
+        "note": "An edit is one action, checked against the schema before any byte is written."
+      },
+      {
+        "id": "keep",
+        "label": "What survives",
+        "focus": [
+          "card",
+          "fields",
+          "save"
+        ],
+        "note": "A key this codebase has never heard of is parsed, carried and written back untouched."
+      }
+    ],
+    "viewBox": [
+      1080,
+      520
+    ]
+  },
+  "stages": [
+    {
+      "label": "On disk"
+    },
+    {
+      "label": "Read"
+    },
+    {
+      "label": "Understand"
+    },
+    {
+      "label": "Draw"
+    },
+    {
+      "label": "The way back"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "card",
+      "type": "database",
+      "label": "Project card",
+      "sublabel": "one .md per project",
+      "stage": 0,
+      "row": 1,
+      "tag": "the database"
+    },
+    {
+      "id": "fields",
+      "type": "backend",
+      "label": "Fields",
+      "sublabel": "- key: value items",
+      "stage": 1,
+      "row": 0,
+      "tag": "unknown keys kept"
+    },
+    {
+      "id": "notes",
+      "type": "backend",
+      "label": "Notes",
+      "sublabel": "free markdown",
+      "stage": 1,
+      "row": 2
+    },
+    {
+      "id": "timeline",
+      "type": "backend",
+      "label": "Timeline",
+      "sublabel": "working days, people",
+      "stage": 2,
+      "row": 0
+    },
+    {
+      "id": "text",
+      "type": "backend",
+      "label": "Text",
+      "sublabel": "markdown to HTML",
+      "stage": 2,
+      "row": 2,
+      "tag": "escaped first"
+    },
+    {
+      "id": "chart",
+      "type": "frontend",
+      "label": "The chart",
+      "sublabel": "bars, lanes, milestones",
+      "stage": 3,
+      "row": 1
+    },
+    {
+      "id": "edit",
+      "type": "frontend",
+      "label": "An edit",
+      "sublabel": "drag a bar, tick a note",
+      "stage": 4,
+      "row": 0
+    },
+    {
+      "id": "check",
+      "type": "security",
+      "label": "Validation",
+      "sublabel": "against the schema",
+      "stage": 4,
+      "row": 1,
+      "tag": "400, nothing written"
+    },
+    {
+      "id": "save",
+      "type": "database",
+      "label": "Atomic save",
+      "sublabel": "temp file, then rename",
+      "stage": 4,
+      "row": 2
+    }
+  ],
+  "flows": [
+    {
+      "from": "card",
+      "to": "fields",
+      "label": "the outline",
+      "classification": "parsed on every request",
+      "variant": "emphasis"
+    },
+    {
+      "from": "card",
+      "to": "notes",
+      "label": "under ## Notes",
+      "classification": "kept verbatim"
+    },
+    {
+      "from": "fields",
+      "to": "timeline",
+      "label": "start, end, tasks",
+      "variant": "emphasis"
+    },
+    {
+      "from": "notes",
+      "to": "text",
+      "label": "intros and notes"
+    },
+    {
+      "from": "timeline",
+      "to": "chart",
+      "label": "bars and lanes",
+      "variant": "emphasis"
+    },
+    {
+      "from": "text",
+      "to": "chart",
+      "label": "the panel"
+    },
+    {
+      "from": "chart",
+      "to": "edit",
+      "label": "one action"
+    },
+    {
+      "from": "edit",
+      "to": "check",
+      "label": "JSON payload",
+      "variant": "security",
+      "labelAt": [
+        960,
+        200
+      ]
+    },
+    {
+      "from": "check",
+      "to": "save",
+      "label": "valid only",
+      "variant": "security",
+      "labelAt": [
+        960,
+        314
+      ]
+    },
+    {
+      "from": "save",
+      "to": "card",
+      "label": "the same file, rewritten",
+      "classification": "unknown keys carried through",
+      "variant": "dashed",
+      "route": "bottom-channel"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The file is the database",
+      "items": [
+        "A project is one markdown card you can read, grep and commit without this program",
+        "A key the code has never heard of is parsed, carried and written back untouched",
+        "Delete the application tomorrow and the work is still there, in plain text"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Nothing is cached",
+      "items": [
+        "Every request parses the vault again, so an edit in your editor shows up on reload",
+        "There is no database and no hidden index to fall out of step",
+        "Attachments are listed straight from the folder, so the card never mentions them"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "The way back is narrow",
+      "items": [
+        "An edit is one action against one card, never a whole-file overwrite",
+        "The schema refuses an invalid value with a 400 before anything reaches the disk",
+        "The save writes a sibling temp file and renames it, so a crash cannot truncate a card"
+      ]
+    }
+  ]
+}

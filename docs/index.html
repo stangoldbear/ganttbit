@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GanttBit: a delivery manager's second brain, in markdown files you own</title>
+<meta name="description" content="A local, dependency-free delivery control center: a folder of markdown cards rendered as an interactive Gantt chart, with notes, milestones and a phone that works. Free, open source, self-hostable.">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23475569' d='M8 1.2 14.8 8 8 14.8 1.2 8Z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="site.css">
+<meta property="og:title" content="GanttBit">
+<meta property="og:description" content="A folder of markdown files, rendered as a delivery chart. Yours, offline, free.">
+<meta property="og:type" content="website">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top__inner">
+    <span class="mark">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.2 14.8 8 8 14.8 1.2 8Z"/></svg>
+      GanttBit
+    </span>
+    <nav>
+      <a href="#what">What it does</a>
+      <a href="#format">The format</a>
+      <a href="#model">Why it is free</a>
+      <a class="btn btn--ghost" href="https://github.com/stangoldbear/ganttbit">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Free · open source · self-hosted</p>
+    <h1>A delivery manager's second brain,<br>in markdown files you own.</h1>
+    <p class="lead">One folder. One file per project. Open it and you get a live
+    delivery chart (priorities, timelines, people, milestones, notes and actions)
+    that writes everything straight back into the markdown. No database, no
+    cloud, no account, no build step, no dependency beyond Python.</p>
+
+    <div class="hero__actions">
+      <a class="btn btn--primary" href="#selfhost">Run it in one command</a>
+      <a class="btn btn--ghost" href="https://github.com/stangoldbear/ganttbit">Read the source</a>
+    </div>
+    <p class="hero__note">MIT licensed. Your vault never leaves your machine:
+    there is nowhere for it to go.</p>
+
+    <div class="shot" aria-hidden="true">
+      <div class="shot__bar"><span class="shot__dot"></span><span class="shot__dot"></span><span class="shot__dot"></span>
+        &nbsp;GanttBit — 17 projects</div>
+      <div class="shot__grid">
+        <div class="shot__labels">
+          <div class="shot__row" style="--rail:hsl(var(--band-1))"><strong>1</strong> Navigation menu <span class="pill pill--active">active</span></div>
+          <div class="shot__row shot__row--sub" style="--rail:hsl(var(--band-1))">└─ Backend: Ada L.</div>
+          <div class="shot__row shot__row--sub" style="--rail:hsl(var(--band-1))">└─ iOS: Rita L.</div>
+          <div class="shot__row" style="--rail:hsl(var(--band-2))"><strong>2</strong> Eco labels <span class="pill pill--blocked">blocked</span></div>
+          <div class="shot__row" style="--rail:hsl(var(--band-3))"><strong>3</strong> Carrier tracking <span class="pill pill--active">active</span></div>
+          <div class="shot__row shot__row--sub" style="--rail:hsl(var(--band-3))">└─ Android: Linus P.</div>
+          <div class="shot__row" style="--rail:hsl(var(--band-4))"><strong>4</strong> Store credit <span class="pill pill--active">active</span></div>
+        </div>
+        <div>
+          <div class="shot__lane" style="background:hsl(var(--muted))"></div>
+          <div class="shot__lane">
+            <span class="shot__bar-piece" style="left:6%;width:62%;background:hsl(var(--band-1)/.55)"></span>
+            <span class="shot__mark" style="left:41%"></span>
+            <span class="shot__mark" style="left:64%"></span>
+            <span class="shot__today" style="left:22%"></span>
+          </div>
+          <div class="shot__lane"><span class="shot__bar-piece" style="left:6%;width:34%;background:#1e88e5"></span><span class="shot__today" style="left:22%"></span></div>
+          <div class="shot__lane"><span class="shot__bar-piece" style="left:18%;width:30%;background:#1e88e5"></span><span class="shot__today" style="left:22%"></span></div>
+          <div class="shot__lane">
+            <span class="shot__bar-piece" style="left:10%;width:78%;background:#e74c3c"></span>
+            <span class="shot__today" style="left:22%"></span>
+          </div>
+          <div class="shot__lane" style="background:hsl(var(--muted))"></div>
+          <div class="shot__lane">
+            <span class="shot__bar-piece" style="left:20%;width:44%;background:hsl(var(--band-3)/.55)"></span>
+            <span class="shot__mark" style="left:62%"></span>
+            <span class="shot__today" style="left:22%"></span>
+          </div>
+          <div class="shot__lane"><span class="shot__bar-piece" style="left:38%;width:26%;background:#ffb300"></span><span class="shot__today" style="left:22%"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="what">
+  <div class="wrap">
+    <p class="eyebrow">Three promises</p>
+    <h2>A folder, a loopback port, and the standard library.</h2>
+    <div class="grid grid--3">
+      <div class="card">
+        <h3>Your files stay yours</h3>
+        <p>A project is a markdown file you can read, grep, edit in any editor
+        and keep in git. The application renders those files and writes them
+        back; it never takes custody of them. Delete it tomorrow and your work
+        is still there, in plain text.</p>
+      </div>
+      <div class="card">
+        <h3>No cloud, no account</h3>
+        <p>It binds to loopback by default and works with the network cable out.
+        Expose it and it demands a shared token on every request. Nothing is
+        uploaded, because there is nowhere to upload it to.</p>
+      </div>
+      <div class="card">
+        <h3>No build step, no dependencies</h3>
+        <p>Python 3.11 and its standard library, two stylesheets and two
+        scripts. No npm, no bundler, no framework to upgrade at 2am. Clone it
+        and run it. That is the whole installation.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">What it does</p>
+    <h2>A chart for planning, a list for the corridor.</h2>
+    <div class="grid grid--2">
+      <div class="card">
+        <h3>The chart</h3>
+        <p>One ranked list, with DONE and DROPPED at the bottom. Every project
+        carries a coloured band that fades as the list goes down, so the order
+        reads at a glance. Drag a project to reorder it, or onto a group to
+        finish it; drag a bar to move it, or either edge to resize it, in whole
+        working days. Zoom from a day per column to two years on one screen.</p>
+      </div>
+      <div class="card">
+        <h3>Every project, in place</h3>
+        <p>Status, deadlines, platforms, Jira/Confluence/Figma links,
+        attachments of any type, milestones on the lane, and an action list with
+        history. Every value reads as information and becomes an editor when
+        you ask it to, with an explicit Save and a delete that always asks.</p>
+      </div>
+      <div class="card">
+        <h3>The whole vault as one document</h3>
+        <p>A hierarchy view that shows every value every card holds, and a
+        markdown tab that is every card concatenated, editable in one go and
+        downloadable as a monthly snapshot. A block with an unknown id creates a
+        card; a card whose block is missing is never deleted.</p>
+      </div>
+      <div class="card">
+        <h3>A phone with its own interface</h3>
+        <p>On a phone it is a list of project cards with the span, the
+        milestones and what is asking for attention. Tap one and the project
+        takes the screen, notes first, with every value editable where it
+        stands.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="format">
+  <div class="wrap">
+    <p class="eyebrow">The format</p>
+    <h2>This is the database.</h2>
+    <p class="lead">One file per project. The title is the name, every field is
+    a <code>- key: value</code> item, a group is two spaces deeper, free text
+    lives under <code>## Notes</code>. Nothing is quoted, nothing is escaped,
+    and a key the application has never heard of survives every save.</p>
+<pre><code># Navigation menu — second level
+- id: project-1-navigation-menu
+- priority: 1
+- status: active
+- timeline
+  - start: 2026-08-24
+  - end: 2026-11-20
+  - tasks
+    - task-1
+      - who: Ada Lovelace
+      - start: 2026-08-24
+      - days: 34
+      - flags
+        - crit
+      - note: Menu API v2
+- milestones
+  - milestone-1
+    - date: 2026-11-14
+    - text: Store submission
+- todos
+  - todo-1788000000
+    - text: Confirm the API contract with the backend team
+    - deadline: 2026-09-18
+
+## Notes
+
+Phase 1 shipped in June. This card only tracks phase 2.</code></pre>
+  </div>
+</section>
+
+<section id="selfhost">
+  <div class="wrap">
+    <p class="eyebrow">Self-host</p>
+    <h2>Thirty seconds, and it is yours.</h2>
+<pre><code>git clone https://github.com/stangoldbear/ganttbit.git
+cd ganttbit
+python3 dashboard.py --vault sample-vault --port 8099</code></pre>
+    <p>Open <code>http://localhost:8099</code>. That runs against the sample
+    vault, a fictional organisation used as the demo and as the test fixture.
+    Point <code>settings.toml</code> at your own folder and run
+    <code>python3 dashboard.py</code>. To reach it from your phone, bind it to
+    your network and it will mint an access token for you.</p>
+  </div>
+</section>
+
+<section id="model">
+  <div class="wrap">
+    <p class="eyebrow">The model</p>
+    <h2>Free, and that is the whole product.</h2>
+    <p class="lead">Everything on this page is in the repository, under MIT, in
+    full, forever. There is no trial period, no reduced plan and no feature
+    held back. <strong>If you can run a command, you never have to pay us
+    anything.</strong></p>
+    <p class="lead" style="margin-top:14px">One day there may be a paid way to
+    have somebody else run it for you: a machine that is always on, with
+    backups and a URL that is there tomorrow morning. There may also be a way
+    for several people to share one vault. Neither exists yet, and this page
+    will not pretend otherwise. When they do, the self-hosted version will be
+    exactly what it is today: complete.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Questions you should ask</p>
+    <h2>What is the catch.</h2>
+    <div class="faq">
+      <details open>
+        <summary>Is the free version actually the whole thing?</summary>
+        <p>Yes. The repository is the product: the chart, the editing, the
+        markdown format, the phone, the snapshots. What a paid plan would sell
+        is somebody running the software for you, on hardware you do not have
+        to think about.</p>
+      </details>
+      <details>
+        <summary>Where is my data, exactly?</summary>
+        <p>In the folder you pointed the application at, as markdown files, one
+        per project, with attachments beside them. There is no database and no
+        hidden index. Back it up by copying a folder; version it by committing
+        one.</p>
+      </details>
+      <details>
+        <summary>Can you see any of it?</summary>
+        <p>No. The self-hosted application makes no outbound request of any
+        kind: it has a content security policy that forbids one and no
+        telemetry to send. On the hosted plan we would hold your files the way
+        any host does, and you can leave with them at any time.</p>
+      </details>
+      <details>
+        <summary>What if this project stops being maintained?</summary>
+        <p>You keep a working copy of a program with no dependencies and no
+        build step, and a vault of plain markdown that any editor can open. The
+        worst case is a folder of files that outlives the software, which is
+        why the format is what it is.</p>
+      </details>
+      <details>
+        <summary>Will it stay free once there is a paid plan?</summary>
+        <p>The application stays exactly as it is: MIT, complete, self-hostable.
+        Anything paid would be somebody running it for you, or several people
+        sharing one vault. Features already in your copy stay in it.</p>
+      </details>
+      <details>
+        <summary>Why not just use a spreadsheet, or a tracker?</summary>
+        <p>Because a spreadsheet does not draw a delivery plan, and a tracker
+        owns your data, charges per seat and still cannot tell you what is
+        blocked this week without four clicks. This is one screen, built for
+        one person who has to answer that question all day.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="bottom">
+  <div class="wrap" style="display:flex;gap:14px;justify-content:space-between;flex-wrap:wrap">
+    <span>MIT licensed. Built to be deleted without regret.</span>
+    <span>
+      <a href="https://github.com/stangoldbear/ganttbit">Source</a> ·
+      <a href="https://github.com/stangoldbear/ganttbit/releases">Releases</a> ·
+      <a href="https://github.com/stangoldbear/ganttbit/discussions">Discussions</a>
+    </span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 210" width="760" height="210" role="img" aria-label="Hierarchy: the ranked list, then a project, then its people and sub-tasks">
+  <style>
+    .t { font: 600 13px system-ui, sans-serif; }
+    .s { font: 11px system-ui, sans-serif; fill: #8a8a8a; }
+    .b { fill: none; stroke-width: 1.5; rx: 6; }
+    .l { stroke: #8a8a8a; stroke-width: 1.2; stroke-dasharray: 3 3; fill: none; }
+  </style>
+
+  <rect class="b" x="10" y="14" width="200" height="34" stroke="#3658b0"/>
+  <text class="t" x="24" y="36" fill="#3658b0">#1 Navigation menu</text>
+  <rect class="b" x="10" y="54" width="200" height="28" stroke="#657ebd"/>
+  <text class="s" x="24" y="72" fill="#657ebd">#2 Eco labels</text>
+  <rect class="b" x="10" y="88" width="200" height="28" stroke="#98a4c3"/>
+  <text class="s" x="24" y="106" fill="#98a4c3">#3 Carrier tracking</text>
+  <rect class="b" x="10" y="122" width="200" height="28" stroke="#c3c7d0"/>
+  <text class="s" x="24" y="140" fill="#c3c7d0">#4 Store credit</text>
+  <text class="s" x="24" y="172">one list, the band fades with the rank</text>
+
+  <path class="l" d="M210 31 H250"/>
+  <rect class="b" x="250" y="14" width="230" height="34" stroke="#3658b0"/>
+  <text class="t" x="264" y="30" fill="#3658b0">#1 Navigation menu</text>
+  <text class="s" x="264" y="43">ACTIVE · 14 Nov 26 [HARD] · iOS Android QA</text>
+
+  <path class="l" d="M250 62 H265"/>
+  <text class="s" x="272" y="66">└─ iOS Dev: Rita Levi</text>
+  <path class="l" d="M250 84 H265"/>
+  <text class="s" x="272" y="88">└─ Backend Dev: Ada Lovelace</text>
+  <path class="l" d="M250 106 H265"/>
+  <text class="s" x="272" y="110">└─ QA: Margaret Hamilton</text>
+
+  <rect class="b" x="520" y="14" width="230" height="34" stroke="#8a8a8a"/>
+  <text class="s" x="534" y="30">notes · actions · Jira · Confluence</text>
+  <text class="s" x="534" y="43">Figma · risks · dependencies</text>
+  <path class="l" d="M480 31 H520"/>
+  <text class="s" x="534" y="72">edited in place, saved to the</text>
+  <text class="s" x="534" y="88">markdown card on disk</text>
+
+  <rect x="520" y="120" width="14" height="10" fill="#1e88e5" rx="2"/>
+  <text class="s" x="542" y="129">dev</text>
+  <rect x="580" y="120" width="14" height="10" fill="#ffb300" rx="2"/>
+  <text class="s" x="602" y="129">QA</text>
+  <rect x="634" y="120" width="14" height="10" fill="#ab47bc" rx="2"/>
+  <text class="s" x="656" y="129">content</text>
+  <path d="M527 146 L534 152 L527 158 L520 152 Z" fill="#1d1d1f"/>
+  <text class="s" x="542" y="155">milestone</text>
+  <rect x="580" y="146" width="14" height="10" fill="#78909c" rx="2"/>
+  <text class="s" x="602" y="155">PM / DM</text>
+</svg>

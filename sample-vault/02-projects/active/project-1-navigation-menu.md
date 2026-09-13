@@ -1,0 +1,144 @@
+# Navigation menu — second level
+- id: project-1-navigation-menu
+- type: project
+- priority: 1
+- status: active
+- blocked_reason:
+- intro:
+  ```md
+  Rollout of the second level of the navigation menu on all markets.
+  Coordination with the "Menu API" backend team is the critical path:
+  see https://confluence.example.com/display/NAV/Menu-API for the contract.
+  ```
+- timeline
+  - start: 2026-08-24
+  - end: 2026-11-20
+  - tasks
+    - task-1
+      - who: Ada Lovelace
+      - start: 2026-08-24
+      - end: 2026-10-09
+      - flags
+        - crit
+        - active
+      - note: Menu API v2
+    - task-2
+      - who: Rita Levi
+      - start: 2026-09-14
+      - end: 2026-10-19
+      - flags
+        - crit
+        - active
+      - note: menu integration
+    - task-3
+      - who: Katherine Johnson
+      - start: 2026-09-14
+      - end: 2026-10-19
+      - flags
+        - crit
+        - active
+      - note: menu integration
+    - task-4
+      - who: Margaret Hamilton
+      - start: 2026-10-19
+      - end: 2026-11-02
+      - note: regression
+    - task-5
+      - who: Mary Jackson
+      - start: 2026-09-01
+      - end: 2026-11-20
+      - flags
+        - active
+      - note: rollout coordination
+- milestones
+  - milestone-project-1-navigation-menu-1-1788200000
+    - date: 2026-10-09
+    - text: Menu API v2 frozen
+  - milestone-project-1-navigation-menu-2-1788200001
+    - date: 2026-11-14
+    - text: Store submission
+- dates
+  - soft_deadline: 2026-11-06
+  - mandatory_deadline: 2026-11-20
+  - target_delivery: 2026-11-14
+  - deadline_text: 2026-11-14
+  - deadline_type: hard
+- tech_footprint
+  - platforms
+    - iOS
+    - Android
+    - Backend (dev)
+    - Backend (config)
+    - Content
+    - QA
+  - qa_effort: high
+  - content_impact: true
+- stakeholders
+  - business_owner: stakeholder-mary-jackson
+  - tech_lead: stakeholder-ada-lovelace
+  - delivery_manager: stakeholder-unassigned
+  - qa_lead: stakeholder-margaret-hamilton
+- dependencies
+  - upstream
+    - upstream-1
+      - project_or_service: Menu API v2
+      - team: Backend Platform
+      - contact: stakeholder-grace-hopper
+      - criticality: high
+    - upstream-2
+      - project_or_service: CDN cache invalidation
+      - team: Infrastructure
+      - contact: stakeholder-alan-turing
+      - criticality: medium
+  - downstream
+    - downstream-1
+      - project_or_service: Seasonal campaign landing
+      - team: Marketing Tech
+      - contact: stakeholder-mary-jackson
+      - criticality: low
+- risks_and_criticalities
+  - RISK-01
+    - description: Menu API v2 contract not frozen yet
+    - severity: high
+    - mitigation: Weekly sync with the backend platform team
+    - owner: stakeholder-ada-lovelace
+  - RISK-02
+    - description: Translations for 12 markets arrive late
+    - severity: medium
+    - mitigation: Ship English fallback, translate incrementally
+    - owner: stakeholder-mary-jackson
+  - RISK-03
+    - description: Older Android devices lose the scroll position
+    - severity: low
+    - mitigation: Cap the menu depth on API level < 26
+    - owner: stakeholder-katherine-johnson
+- planning_factors
+  - team_capacity_needed: 2 iOS + 2 Android + 1 backend, ~6 weeks
+  - critical_path: Menu API v2 → client integration → QA regression
+- jira
+  - request: NIMBUS-1042
+  - epics
+    - NIMBUS-1043
+    - NIMBUS-1051
+- confluence
+  - https://confluence.example.com/display/NAV/Menu-API
+  - https://confluence.example.com/display/NAV/Rollout-plan
+- figma
+  - https://www.figma.com/design/aaaa1111/Navigation-menu
+  - https://www.figma.com/design/aaaa2222/Menu-motion
+- todos
+  - todo-project-1-navigation-menu-1-1788000000
+    - text: Confirm the API contract with the backend platform team
+    - deadline: 2026-09-18
+  - todo-project-1-navigation-menu-2-1788000001
+    - text: Ask design for the empty-state of the third level
+    - deadline:
+- done
+  - todo-project-1-navigation-menu-3-1787000000
+    - text: Kick-off with both mobile squads
+    - deadline: 2026-08-26
+    - completed_at: 2026-08-26 17:40
+
+## Notes
+
+Phase 1 (single level) shipped in June. This card only tracks phase 2.

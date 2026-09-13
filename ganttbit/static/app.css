@@ -1,0 +1,1410 @@
+/* ============================================================================
+   GanttBit: stylesheet
+   Static file served from /static/app.css: no Python escaping involved.
+
+   The vocabulary is shadcn/ui, ported by hand: its tokens, its radius and the
+   anatomy of the handful of components this app uses. No React, no Tailwind,
+   no build step, only the vocabulary.
+
+   Two rules the rest of the file obeys:
+   1. Colour is spent on signals (blocked, today, a deadline), never on a
+      category something merely belongs to. Rank gets a rail and a wash, not
+      a flood, and it is deliberately not red: red means blocked.
+   2. Every colour comes from a token. Light and dark differ by the token
+      block below and by nothing else.
+
+   Layout metrics (--col-w, --label-w, --row-h, --timeline-w ...) are emitted
+   by the server from settings.py and are the single source of truth: the
+   resize script only updates --label-w and the whole chart follows.
+   ========================================================================== */
+
+:root {
+  /* shadcn tokens, as HSL channels so `hsl(var(--x) / .5)` works everywhere. */
+  --background: 210 20% 97%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 222 47% 11%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  /* Darkened from shadcn's 47% lightness: at 47% it fails AA on --muted. */
+  --muted-foreground: 215 19% 38%;
+  --accent: 210 40% 94%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 72% 42%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214 32% 91%;
+  --input: 214 32% 88%;
+  --ring: 222 47% 11%;
+  --radius: 8px;
+
+  /* Signals. Not decoration: each one means one thing. */
+  --today: 142 69% 27%;
+  --warning: 32 90% 44%;
+
+  /* The three header rows, named so the sticky offsets can add them up. */
+  --month-h: 22px;
+  --day-h: 18px;
+  --weekday-h: 14px;
+  --footer-h: 34px;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Dark comes from the system, unless the footer says otherwise. The two
+   selectors carry the same block: `:root[data-theme="dark"]` forces it on, and
+   `:not([data-theme="light"])` lets the footer force it off. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 96%;
+    --card: 222 44% 10%;
+    --card-foreground: 210 40% 96%;
+    --popover: 222 44% 10%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 210 40% 96%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 217 30% 22%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 217 33% 15%;
+    --muted-foreground: 215 20% 70%;
+    --accent: 217 33% 20%;
+    --accent-foreground: 210 40% 96%;
+    --destructive: 0 63% 47%;
+    --border: 217 33% 20%;
+    --input: 217 33% 24%;
+    --ring: 213 27% 84%;
+    --today: 142 55% 42%;
+    --warning: 38 92% 55%;
+  }
+}
+
+:root[data-theme="dark"] {
+  --background: 222 47% 7%;
+  --foreground: 210 40% 96%;
+  --card: 222 44% 10%;
+  --card-foreground: 210 40% 96%;
+  --popover: 222 44% 10%;
+  --popover-foreground: 210 40% 96%;
+  --primary: 210 40% 96%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 217 30% 22%;
+  --secondary-foreground: 210 40% 96%;
+  --muted: 217 33% 15%;
+  --muted-foreground: 215 20% 70%;
+  --accent: 217 33% 20%;
+  --accent-foreground: 210 40% 96%;
+  --destructive: 0 63% 47%;
+  --border: 217 33% 20%;
+  --input: 217 33% 24%;
+  --ring: 213 27% 84%;
+  --today: 142 55% 42%;
+  --warning: 38 92% 55%;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* An author `display` beats the user agent's `[hidden] { display: none }` at
+   equal specificity, and every editor in this file sets one. */
+[hidden] { display: none !important; }
+
+body {
+  font-family: var(--font-sans);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  padding: 24px 20px;
+}
+
+.container { width: 100%; max-width: 100%; margin: 0 auto; }
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px hsl(var(--ring) / .5);
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+/* The collapse chevron: one glyph, turned rather than swapped. */
+.caret { display: inline-flex; transition: transform .12s; }
+.caret .icon { width: 12px; height: 12px; }
+.caret.is-closed { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .caret { transition: none; } }
+
+/* ─── Icons ────────────────────────────────────────────────────────────────
+   Monochrome, inline, drawn at currentColor: they inherit the text colour and
+   therefore the theme. No emoji anywhere in the chrome. */
+.icon {
+  width: 14px; height: 14px; flex: none;
+  stroke: currentColor; fill: none; stroke-width: 1.75;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.icon--diamond { fill: currentColor; stroke: none; }
+
+/* ─── Header ──────────────────────────────────────────────────────────────── */
+header {
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.wordmark { display: flex; align-items: center; gap: 8px; }
+.wordmark .icon { width: 11px; height: 11px; color: hsl(var(--foreground)); }
+h1 { font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+.header-stat { font-size: 12px; color: hsl(var(--muted-foreground)); white-space: nowrap; }
+.header-stat strong { color: hsl(var(--foreground)); font-weight: 600; }
+
+/* ─── Button (six variants over two sizes, one primary) ───────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 10px; border: 1px solid transparent;
+  border-radius: calc(var(--radius) - 2px);
+  font-family: inherit; font-size: 12px; font-weight: 500; white-space: nowrap;
+  cursor: pointer; background: transparent; color: hsl(var(--foreground));
+  text-decoration: none;                 /* some buttons are links */
+  transition: background-color .12s, color .12s, border-color .12s;
+}
+.btn--sm { height: 24px; padding: 0 8px; font-size: 11px; }
+/* An icon button is a square and never squeezed by a tight flex row. */
+.btn--icon { width: 28px; padding: 0; flex: none; }
+.btn--sm.btn--icon { width: 24px; }
+.btn[disabled] { opacity: .4; cursor: default; }
+
+.btn--default { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.btn--default:hover:not([disabled]) { background: hsl(var(--primary) / .88); }
+.btn--secondary { background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground)); }
+.btn--secondary:hover:not([disabled]) { background: hsl(var(--accent)); }
+.btn--outline { border-color: hsl(var(--border)); background: hsl(var(--card)); }
+.btn--outline:hover:not([disabled]) { background: hsl(var(--accent)); }
+.btn--ghost { color: hsl(var(--muted-foreground)); }
+.btn--ghost:hover:not([disabled]) { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+.btn--destructive { background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); }
+.btn--destructive:hover:not([disabled]) { background: hsl(var(--destructive) / .88); }
+.btn--danger { color: hsl(var(--destructive)); }
+.btn--danger:hover:not([disabled]) { background: hsl(var(--destructive) / .12); color: hsl(var(--destructive)); }
+.btn--wide { width: 100%; justify-content: flex-start; }
+
+/* ─── Badge ───────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 8px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .01em; white-space: nowrap;
+  background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground));
+}
+.badge--outline { background: transparent; border: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); }
+
+/* ─── Input ───────────────────────────────────────────────────────────────── */
+.form-input, textarea {
+  padding: 5px 8px; border: 1px solid hsl(var(--input)); border-radius: calc(var(--radius) - 2px);
+  font-size: 12px; font-family: inherit; background: hsl(var(--card));
+  color: hsl(var(--foreground)); min-width: 0; outline: none;
+}
+.form-input:focus-visible, textarea:focus-visible, select.form-input:focus-visible {
+  border-color: hsl(var(--ring)); box-shadow: 0 0 0 3px hsl(var(--ring) / .3);
+}
+.form-input::placeholder, textarea::placeholder { color: hsl(var(--muted-foreground) / .7); }
+.form-input--narrow { width: 130px; flex: none; }
+.form-input--date { width: 140px; flex: none; }
+.form-input--grow { flex: 1; }
+textarea { width: 100%; resize: vertical; line-height: 1.5; padding: 8px; }
+
+/* ─── Aggregated actions ──────────────────────────────────────────────────── */
+.global-todos-box {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+.global-todos-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px; border-bottom: 1px solid hsl(var(--border));
+  cursor: pointer; user-select: none;
+}
+.global-todos-header:hover { background: hsl(var(--muted)); }
+.global-todos-title {
+  font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.global-todos-content { padding: 14px; background: hsl(var(--background)); }
+.global-todo-card {
+  background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+  /* After the shorthand, or the shorthand resets it. */
+  border-left: 3px solid var(--rail, transparent);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 10px 12px; margin-bottom: 8px;
+}
+.global-todo-card__head {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.global-todo-card__title { font-size: 13px; font-weight: 600; }
+.todo-group-label {
+  font-size: 10px; font-weight: 600; margin-bottom: 4px;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: hsl(var(--muted-foreground));
+}
+.todo-group-label--history { margin-top: 8px; }
+
+/* ─── Chart ───────────────────────────────────────────────────────────────── */
+/* The middle of the app shell: pinned to the top of the window, as tall as
+   what is left of it once the footer has its line, and a column so the chart
+   takes whatever the toolbar does not: the toolbar wraps at narrow widths and
+   a hard-coded height would put the last rows under the footer. */
+.gantt-box {
+  /* The panel inside measures itself against this box, not against the window:
+     `100vw` counts a desktop scrollbar the layout never had, and every gutter
+     computed from it is wrong by exactly that much on one platform or the
+     other. `100cqw` is the chart's own width, whatever the paddings are. */
+  container-type: inline-size;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  padding: 14px;
+  position: sticky; top: 0; z-index: 2;
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - var(--footer-h) - 28px);
+}
+.gantt-toolbar {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  margin-bottom: 10px; flex-wrap: wrap;
+}
+.gantt-search { display: flex; align-items: center; gap: 8px; }
+.gantt-search .form-input { width: 260px; }
+.gantt-search__count { font-size: 11px; color: hsl(var(--muted-foreground)); }
+/* A count with nothing to say is not an item: left in the flow it reserves the
+   flex gap beside it, and the field beside it stops 8px short of everything
+   else on the page. */
+.gantt-search__count:empty { display: none; }
+mark {
+  background: hsl(var(--warning) / .3); color: inherit;
+  border-radius: 2px; padding: 0 1px;
+}
+.gantt-toolbar__actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.window-switch { display: flex; align-items: center; gap: 6px; }
+.window-switch .icon { color: hsl(var(--muted-foreground)); }
+#window-select { padding-right: 4px; }
+#depth-switch .tab { display: inline-flex; align-items: center; gap: 5px; }
+#depth-switch .tab .icon { width: 13px; height: 13px; }
+/* The chart is a viewport of its own: it scrolls in both directions inside a
+   box pinned to the top of the window, which is the only arrangement that
+   keeps the calendar in view while the rows scroll under it. A table cannot
+   stick its header to the window from inside a horizontal scroller,
+   scrolling one axis makes the element the scrollport for both. */
+.gantt-scroll {
+  overflow: auto; position: relative;
+  flex: 1 1 auto; min-height: 180px;
+  /* No rubber band on the horizontal axis. The label column and the notes
+     panel are sticky; the rows are not, so an overscroll bounce slides them
+     apart and the chart looks broken for as long as the finger is down. It
+     also stops a sideways drag from becoming a back-navigation. */
+  overscroll-behavior-x: none;
+}
+
+.gantt-table {
+  border-collapse: separate; border-spacing: 0; table-layout: fixed;
+  width: calc(var(--label-w) + var(--timeline-w));
+  min-width: calc(var(--label-w) + var(--timeline-w));
+}
+.gantt-table col.label-col { width: var(--label-w); }
+.gantt-table col.timeline-col { width: var(--timeline-w); }
+.gantt-table th, .gantt-table td { border-bottom: 1px solid hsl(var(--border)); }
+.gantt-table .sticky-col {
+  position: sticky; left: 0; background: hsl(var(--card));
+  z-index: 5; border-right: 1px solid hsl(var(--border));
+  width: var(--label-w); min-width: var(--label-w);
+}
+/* The calendar stays at the top of the window while the rows scroll under it.
+   Each header row sits at the height of the ones above it. */
+.gantt-table thead th { position: sticky; top: 0; z-index: 6; }
+.gantt-table tr:nth-child(2) th { top: var(--month-h); }
+.gantt-table tr:nth-child(3) th { top: calc(var(--month-h) + var(--day-h)); }
+.gantt-table .label-head { background: hsl(var(--muted)); z-index: 8; }
+.gantt-table .timeline-head { background: hsl(var(--muted)); padding: 0; }
+.gantt-table .timeline-strip { display: flex; width: var(--timeline-w); }
+.gantt-table /* The year, on the zooms where a month cell has no room to print it. Quieter
+   than the months under it: it is the thing you check once, not the thing you
+   read along. */
+.year-cell {
+  flex: none; box-sizing: border-box; padding: 1px 6px;
+  border-left: 1px solid hsl(var(--border));
+  font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  color: hsl(var(--muted-foreground)); white-space: nowrap; overflow: hidden;
+}
+.year-cell:first-child { border-left: none; }
+
+.month-cell {
+  height: var(--month-h); display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid hsl(var(--border));
+  font-size: 10.5px; font-weight: 600; color: hsl(var(--muted-foreground));
+  overflow: hidden;
+}
+
+/* The calendar header groups each Monday-to-Friday run in a light box, so the
+   day of the week reads without a letter being printed for it. */
+.gantt-table .day-cell {
+  width: var(--col-w); height: var(--day-h);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9.5px; color: hsl(var(--muted-foreground));
+  border-top: 1px solid transparent; border-bottom: 1px solid transparent;
+}
+.gantt-table .day-cell--weekend { color: hsl(var(--muted-foreground) / .5); }
+
+/* Zoomed out, the day cells are too narrow for a number and the letters go
+   with them: the week boxes and the month bands carry the scale instead. */
+:root[data-weekdays] [data-zoom="week"] .weekday-row,
+:root[data-weekdays] [data-zoom="month"] .weekday-row { display: none; }
+[data-zoom="month"] .gantt-table .day-cell--wd { background: none; }
+/* A name needs a bar to sit in: at a month per 44px there is none. */
+[data-zoom="month"] .bar-text { display: none; }
+[data-zoom="month"] .gantt-table .day-cell--w-start,
+[data-zoom="month"] .gantt-table .day-cell--w-end { border-left: none; border-right: none; }
+
+/* The weekday letters: off by default, because the week boxes already say
+   where a week starts and this is one more thing to read. */
+.weekday-row { display: none; }
+:root[data-weekdays] .weekday-row { display: table-row; }
+.gantt-table .day-name {
+  width: var(--col-w); height: var(--weekday-h);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8.5px; letter-spacing: .02em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground) / .75);
+  border-bottom: 1px solid hsl(var(--border));
+}
+.gantt-table .day-name--today { color: hsl(var(--today)); font-weight: 700; }
+.gantt-table .day-cell--wd {
+  border-top-color: hsl(var(--border)); border-bottom-color: hsl(var(--border));
+  background: hsl(var(--card) / .6);
+}
+.gantt-table .day-cell--w-start { border-left: 1px solid hsl(var(--border)); }
+.gantt-table .day-cell--w-end { border-right: 1px solid hsl(var(--border)); }
+.gantt-table .day-cell--past { color: hsl(var(--muted-foreground) / .55); }
+.gantt-table .day-cell--today {
+  background: hsl(var(--today)); color: hsl(0 0% 100%); font-weight: 700;
+  border-color: hsl(var(--today));
+}
+/* Three weights of grid, in the order you should notice them: the day lines
+   are almost not there, a week is a little more, a month is the one you can
+   read the chart by. All of them under the bars, none of them in the way. */
+.grid-lines {
+  position: absolute; top: 0; bottom: 0; left: var(--label-w); right: 0;
+  pointer-events: none;
+  /* Behind the bars: it comes before the table in the document, so with no
+     stacking of its own, the bars (positioned, and later) paint over it. */
+  z-index: 0;
+}
+.grid-line { position: absolute; top: 0; bottom: 0; }
+.grid-line--week { width: 1px; background: hsl(var(--border)); }
+.grid-line--month { width: 2px; background: hsl(var(--foreground) / .16); }
+
+.today-band {
+  position: absolute; top: 0; bottom: 0; z-index: 1;
+  left: calc(var(--label-w) + var(--today-offset, 0px)); width: var(--col-w);
+  background: hsl(var(--today) / .10);
+  border-left: 1px solid hsl(var(--today)); border-right: 1px solid hsl(var(--today));
+  pointer-events: none;
+}
+
+/* Two soft edges that say the chart continues that way. The left one is the
+   shadow the frozen column casts once something is hidden behind it; the right
+   one is there for as long as there is more timeline, which is the part a
+   person needs *before* they try, and the reason it is not only a scrollbar.
+   Both are drawn from a sticky, zero-height anchor, the trick the resize
+   handle already uses to span a table it does not scroll with. */
+.scroll-shades {
+  position: sticky; top: 0; left: 0; height: 0; pointer-events: none;
+  /* One strip as tall as the table, and the table holds rows that are not
+     chart: the panels. Rather than cut the strip up, it sits at the same
+     depth as a panel's cell and earlier in the document, so every opaque
+     panel paints over it. Above the grid and the band, under the frozen
+     column and the calendar, which keep their own edges. */
+  z-index: 2;
+}
+.scroll-shade {
+  position: absolute; top: 0; width: 18px; height: var(--chart-h, 60vh);
+  opacity: 0; transition: opacity .18s ease;
+}
+.scroll-shade--left {
+  left: var(--label-w);
+  background: linear-gradient(to right, hsl(var(--foreground) / .13), transparent);
+}
+.scroll-shade--right {
+  right: 0;
+  background: linear-gradient(to left, hsl(var(--foreground) / .13), transparent);
+}
+#gantt-scroll[data-scroll-x~="left"] .scroll-shade--left { opacity: 1; }
+#gantt-scroll[data-scroll-x~="right"] .scroll-shade--right { opacity: 1; }
+
+/* Drag handle of the sticky PROJECT & RESOURCES column. */
+.col-resize-handle { position: sticky; top: 0; left: 0; height: 0; z-index: 20; pointer-events: none; }
+.col-resize-handle__bar {
+  position: absolute; top: 0; left: var(--label-w); width: 7px;
+  height: var(--chart-h, 60vh);
+  transform: translateX(-3px); cursor: col-resize; pointer-events: auto;
+  background: transparent; border-radius: 3px;
+}
+.col-resize-handle__bar:hover, .col-resize-handle__bar.is-dragging {
+  background: hsl(var(--ring) / .12);
+}
+body.col-resize-active { cursor: col-resize; user-select: none; }
+
+.label-head__title {
+  padding: 6px 12px; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .06em; color: hsl(var(--muted-foreground));
+}
+
+/* ─── The priority ramp ──────────────────────────────────────────────────────
+   Every row that belongs to a project carries `--at`: how far down the ranked
+   list it sits. `--band` and `--band-end` are set on :root by theme.js, which
+   solves them against whichever theme is on. One rule turns the three into a
+   colour; nothing else in this file mixes it again.
+
+   The rail is that colour at full strength. The label cell behind it takes the
+   same colour at `--band-tint`, which is a wash and must stay one: the title
+   has to keep reading at AA over it. The timeline lane never takes either. */
+[style*="--at:"] {
+  --rail: color-mix(in oklab, hsl(var(--band-end)) var(--at), hsl(var(--band)));
+}
+
+/* ─── Group row: DONE and DROPPED, the only two headings left ──────────────── */
+/* `.sticky-col` paints the card colour on every label cell; a heading is the
+   one row where the label has to match the band beside it. */
+.group-row > td, .gantt-table .group-row .sticky-col { background: hsl(var(--muted)); }
+.group-row__cell { padding: 0; border-left: 3px solid var(--marker, transparent); }
+.group-row__inner {
+  display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+}
+.group-row__marker { width: 8px; height: 8px; border-radius: 2px; flex: none; background: var(--marker); }
+.group-row__title {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.group-row__band { padding: 0; }
+
+/* ─── Project row ─────────────────────────────────────────────────────────── */
+.project-cell {
+  padding: 5px 8px;
+  border-left: 3px solid var(--rail, transparent);
+  background: color-mix(in srgb, var(--rail) var(--band-tint), hsl(var(--card)));
+}
+/* Blocked is the one signal loud enough to reach the title. Optional, because
+   the pill says it too, and one of them is always on. */
+:root[data-blocked-title] .project-main-row[data-status="blocked"] .project-title,
+:root[data-blocked-title] .pcard[data-status="blocked"] .pcard__name {
+  color: hsl(var(--destructive));
+}
+/* The carets sit inside 20px rows: a 24px control is a 24px row. Touch gets
+   its size back at the bottom of the file, where the pointer is coarse. */
+.project-line--head .btn--icon, .group-row__inner .btn--icon { width: 20px; height: 20px; }
+.project-line { display: flex; align-items: center; gap: 6px; }
+.project-line--head { flex-wrap: wrap; row-gap: 4px; }
+.project-identity { display: flex; align-items: center; gap: 6px; flex: 1 1 60%; min-width: 0; }
+.project-title[data-action] { cursor: pointer; }
+.project-title[data-action]:hover { text-decoration: underline; text-underline-offset: 2px; }
+.project-title {
+  font-size: 13px; font-weight: 500;
+  white-space: normal; overflow-wrap: break-word; word-break: break-word; min-width: 0;
+}
+.project-row__signals { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+/* The two row actions are revealed by hover or by keyboard focus: they cost
+   27px of every row when they sit on a line of their own. */
+.project-row__actions { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+.project-main-row:hover .project-row__actions,
+.project-row__actions:focus-within { opacity: 1; }
+
+/* The drop indicator says where the row will land and stays there for as long
+   as the button is held: a line at the edge it will be inserted on, or, over a
+   group that is collapsed and therefore is its whole content, a rectangle
+   drawn around that row, meaning "into this group, last". */
+.project-main-row.is-dragging { opacity: .5; }
+.project-main-row.drag-over-top > td { box-shadow: inset 0 3px 0 0 hsl(var(--foreground)); }
+.project-main-row.drag-over-bottom > td, .group-row.drag-over-bottom > td {
+  box-shadow: inset 0 -3px 0 0 hsl(var(--foreground));
+}
+.group-row.drag-over-into > td {
+  box-shadow: inset 0 3px 0 0 hsl(var(--foreground)), inset 0 -3px 0 0 hsl(var(--foreground));
+}
+.group-row.drag-over-into > td:first-child {
+  box-shadow: inset 0 3px 0 0 hsl(var(--foreground)), inset 0 -3px 0 0 hsl(var(--foreground)),
+              inset 3px 0 0 0 hsl(var(--foreground));
+}
+.group-row.drag-over-into > td:last-child {
+  box-shadow: inset 0 3px 0 0 hsl(var(--foreground)), inset 0 -3px 0 0 hsl(var(--foreground)),
+              inset -3px 0 0 0 hsl(var(--foreground));
+}
+.drag-handle { display: inline-flex; cursor: grab; color: hsl(var(--muted-foreground) / .6); }
+.drag-handle:active { cursor: grabbing; }
+
+.prio-badge {
+  font-size: 10px; font-weight: 600; color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums;
+}
+.resource-cell {
+  padding: 2px 8px 2px 26px;
+  border-left: 3px solid var(--rail, transparent);
+  background: color-mix(in srgb, var(--rail) var(--band-tint), hsl(var(--card)));
+}
+.resource-cell--flat { padding-left: 16px; }
+.resource-line { font-size: 10.5px; color: hsl(var(--muted-foreground)); display: flex; align-items: center; gap: 6px; }
+.resource-line[data-action] { cursor: pointer; border-radius: 4px; }
+.resource-line[data-action]:hover { background: hsl(var(--muted)); }
+.resource-line__branch { color: hsl(var(--muted-foreground) / .5); }
+.resource-line__role { font-weight: 600; color: hsl(var(--foreground)); }
+
+/* Inline-flex, not inline-block: an inline-block wraps its pill in a line box
+   with the leading of a 10px font, so the wrapper stood 2.5px taller than the
+   pill inside it and centring the wrapper left the pill 1.3px below the
+   deadline beside it. */
+.status-wrapper { position: relative; display: inline-flex; }
+.status-pill, .deadline-pill {
+  padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 600;
+  display: inline-block; letter-spacing: .02em; white-space: nowrap;
+}
+.blocked-tooltip {
+  display: none; position: absolute; bottom: 125%; right: 0; z-index: 100;
+  background: hsl(var(--popover)); color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  padding: 8px 10px; border-radius: calc(var(--radius) - 2px);
+  font-size: 11px; width: 240px; box-shadow: 0 8px 24px hsl(222 47% 11% / .18);
+  white-space: normal; pointer-events: none; text-transform: none; letter-spacing: 0;
+}
+.status-wrapper:hover .blocked-tooltip, .status-wrapper:focus-within .blocked-tooltip { display: block; }
+
+.timeline-cell { padding: 0; }
+.timeline-row {
+  position: relative; width: var(--timeline-w);
+  background-image: repeating-linear-gradient(to right,
+    hsl(var(--border) / .45) 0, hsl(var(--border) / .45) 1px,
+    transparent 1px, transparent var(--col-w));
+  background-size: var(--col-w) 100%; background-repeat: repeat-y;
+}
+/* The lane fills its row rather than sitting at a fixed height in the middle
+   of it: the label cell decides the height, so the grid lines follow it.
+   `height: 1px` on the cell is what makes the child's 100% resolve against
+   the height the row actually got. */
+.gantt-table td.timeline-cell { height: 1px; }
+.timeline-row--project { height: 100%; min-height: var(--row-h); }
+.timeline-row--resource { height: var(--sub-row-h); }
+
+.task-bar {
+  position: absolute; border-radius: 3px;
+  display: flex; align-items: center; padding: 0 5px; overflow: visible;
+}
+.sub-bar { top: 2px; height: 15px; }
+/* The critical path is a signal, so it gets an outline; a finished task steps
+   back instead of shouting that it is over. */
+.sub-bar--crit { box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / .75); }
+.sub-bar--done { opacity: .45; }
+
+/* A row that does not add up: a task outside the span its project declares. */
+.row-warning { display: inline-flex; color: hsl(var(--warning)); }
+.row-warning .icon { width: 12px; height: 12px; }
+/* One treatment, vertically centred in whatever height the row ends up with.
+   The rank tint is held back so that a blocked project, the signal, is the
+   louder bar of the two, which is exactly what it was not before. */
+.summary-bar { top: 50%; transform: translateY(-50%); height: 16px; opacity: .55; }
+.summary-bar--blocked { opacity: 1; }
+/* A bar is grabbed in the middle and resized from either edge. */
+.task-bar[data-project] { cursor: grab; }
+.task-bar.is-dragging { cursor: grabbing; opacity: .8; }
+.bar-grip {
+  position: absolute; top: 0; bottom: 0; width: 6px; cursor: col-resize;
+}
+.bar-grip--start { left: 0; }
+.bar-grip--end { right: 0; }
+@media (pointer: coarse) { .bar-grip { display: none; } }
+
+.bar-text {
+  font-size: 9.5px; font-weight: 600; color: hsl(0 0% 100%); white-space: nowrap;
+  line-height: 15px; pointer-events: none;
+}
+
+/* ─── Detail panel ─────────────────────────────────────────────────────────
+   The panel is part of the project above it, not a card between two projects.
+   Four things say so: it carries the same rail as the rows of that block,
+   so the vertical line runs unbroken from the project row down past it; it
+   hangs from the row with no gap above; it is indented to where the people of
+   that project are listed; and the row it belongs to takes a background for as
+   long as it is open, the way an expanded accordion header does.
+
+   Opaque on purpose: the today band is painted behind the whole chart, and a
+   translucent panel let a green stripe run through the middle of a form. */
+.project-main-row.has-panel > .sticky-col { background: hsl(var(--muted)); }
+.project-main-row.has-panel > td { border-bottom-color: transparent; }
+
+.detail-cell {
+  padding: 0 10px 12px 0;
+  /* Opaque, and that is the whole point: the grid lines and the today band are
+     painted down the full height of the scroller, and a panel is not a row of
+     the chart. Solid here is the bottom edge of the chart, the last person's
+     row, instead of a green stripe running under a form. */
+  background: hsl(var(--muted));
+  border-bottom: 1px solid hsl(var(--border));
+  border-left: 3px solid var(--rail, transparent);
+  position: relative; z-index: 2;
+}
+.detail-panel-wrapper {
+  position: sticky; left: 0; width: 1200px;
+  /* 3px of rail, 23px of indent, and 2px of slack for its own border. */
+  max-width: calc(100cqw - 28px); box-sizing: border-box; z-index: 2;
+  margin-left: 23px; padding-top: 10px;
+}
+/* The elbow of the tree the resource rows already draw with `└─`. */
+.detail-panel-wrapper::before {
+  content: ''; position: absolute; left: -11px; top: 0; bottom: calc(100% - 22px);
+  width: 9px; border-left: 1px solid hsl(var(--border));
+  border-bottom: 1px solid hsl(var(--border)); border-bottom-left-radius: 4px;
+}
+.detail-panel-box {
+  background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+  border-radius: var(--radius); padding: 14px;
+}
+
+/* A panel opened from the project list is the same node, moved under the card
+   that describes it. It is moved, never copied, and never an overlay: `All details` opens one
+   per project, and a screen of stacked overlays is a screen of dismissals.
+   Out of the table it lays out as a block, and it takes its width from the
+   screen rather than from a timeline it is no longer sitting in. */
+.detail-row--inline { display: block; }
+.detail-row--inline > .detail-cell {
+  display: block; box-sizing: border-box; width: 100%;
+  padding: 0 0 10px 8px; margin-bottom: 6px;
+}
+.detail-row--inline .detail-panel-wrapper {
+  position: static; width: 100%; max-width: 100%; margin: 0; padding: 8px 0 0;
+}
+.detail-row--inline .detail-panel-wrapper::before { display: none; }
+.detail-header {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid hsl(var(--border));
+}
+.detail-header h4 { font-size: 13px; font-weight: 600; }
+.detail-header h4 .detail-header__of { font-weight: 400; color: hsl(var(--muted-foreground)); }
+
+.intro-box {
+  position: relative; width: 100%; box-sizing: border-box;
+  margin-bottom: 14px; padding: 10px 12px; border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--muted)); border: 1px solid hsl(var(--border));
+}
+/* Free text is rendered markdown: the line breaks are in the markup, so
+   pre-wrap would double them. */
+.intro-text {
+  display: block; word-break: break-word;
+  font-size: 12.5px; line-height: 1.5;
+}
+.intro-text--empty { color: hsl(var(--muted-foreground)); }
+.intro-edit-actions, .todo-edit-actions {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px;
+}
+
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.detail-col { display: flex; flex-direction: column; gap: 12px; }
+.detail-field { display: flex; flex-direction: column; gap: 4px; }
+.detail-field label, .field-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); letter-spacing: .06em;
+}
+
+/* A value reads as information until it is double-clicked; the form under it
+   is rendered by the server and only revealed here. */
+.editable-view { padding: 2px 0; border-radius: 4px; cursor: text; }
+.editable-view:hover { background: hsl(var(--muted)); box-shadow: 0 0 0 4px hsl(var(--muted)); }
+.editable-empty, [data-empty] { color: hsl(var(--muted-foreground)); }
+.editable-form { display: flex; flex-direction: column; gap: 6px; }
+.editable-actions { display: flex; gap: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.chips .badge--outline { gap: 5px; }
+.chip-when { color: hsl(var(--muted-foreground) / .8); font-weight: 400; }
+.field-row { display: flex; gap: 6px; }
+.field-stack { display: flex; flex-direction: column; gap: 6px; }
+.field-inline { display: flex; align-items: center; gap: 6px; }
+.field-inline__label { font-size: 11px; color: hsl(var(--muted-foreground)); width: 62px; font-weight: 500; }
+.field-heading {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 11px; color: hsl(var(--muted-foreground)); font-weight: 500;
+}
+
+/* Toggle group: a platform is on or off, so it is a toggle, not a button. */
+.tags-container { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.tag-opt-btn {
+  border: 1px solid hsl(var(--border)); background: hsl(var(--card));
+  color: hsl(var(--muted-foreground)); padding: 2px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 500; cursor: pointer; font-family: inherit;
+  transition: background-color .12s, color .12s;
+}
+.tag-opt-btn:hover { background: hsl(var(--accent)); }
+.tag-opt-btn.active {
+  background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground));
+  border-color: hsl(var(--foreground) / .35); font-weight: 600;
+}
+
+.link-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.jira-link {
+  font-size: 11px; font-weight: 600; color: hsl(var(--foreground)); text-decoration: none;
+  padding: 3px 8px; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 4px);
+  white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;
+}
+.jira-link:hover { background: hsl(var(--accent)); }
+
+/* ─── Notes and actions ───────────────────────────────────────────────────── */
+.todos-box {
+  background: hsl(var(--background)); border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px); padding: 6px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+/* The box is 16px; the label around it is the target. */
+.todo-check { display: inline-flex; align-items: center; justify-content: center; }
+.todo-item-row {
+  display: flex; align-items: flex-start; gap: 8px; padding: 5px 6px;
+  background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 4px); font-size: 12px;
+}
+.todo-item-row.done { background: hsl(var(--muted)); }
+.todo-item-row[draggable] { cursor: grab; }
+.todo-item-row.is-dragging { opacity: .5; }
+.todo-item-row.drag-over-top { box-shadow: inset 0 3px 0 0 hsl(var(--foreground)); }
+.todo-item-row.drag-over-bottom { box-shadow: inset 0 -3px 0 0 hsl(var(--foreground)); }
+.todo-text { flex: 1; word-break: break-word; cursor: text; }
+.todo-text.done { text-decoration: line-through; color: hsl(var(--muted-foreground)); }
+.todo-dl, .todo-done-at {
+  font-size: 10px; font-weight: 600; white-space: nowrap;
+  padding: 1px 6px; border-radius: 999px;
+}
+.todo-dl { color: hsl(var(--warning)); background: hsl(var(--warning) / .12); }
+.todo-done-at { color: hsl(var(--today)); background: hsl(var(--today) / .12); }
+.todo-empty { font-size: 12px; color: hsl(var(--muted-foreground)); padding: 4px; }
+
+.add-todo-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.add-todo-form__textarea, .todo-edit-text, .intro-edit-textarea { min-height: 60px; font-size: 12px; }
+.add-todo-form__row { display: flex; gap: 6px; align-items: center; }
+/* A date field with no value is an empty box on iOS: no format, no hint,
+   nothing. The label beside it is the only thing that
+   says what the box is. */
+.due-field { display: inline-flex; align-items: center; gap: 6px; }
+.due-field .field-label { white-space: nowrap; }
+.todo-edit-wrapper { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.history-box {
+  margin-top: 6px; background: hsl(var(--background)); border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px); padding: 6px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+
+.todo-group + .todo-group { margin-top: 8px; }
+
+/* Rendered markdown inside a row or a box: block elements keep the line they
+   are on rather than opening a new one. */
+.todo-text > p:first-child, .intro-text > p:first-child { margin-top: 0; }
+.todo-text p, .intro-text p { margin: 0 0 6px; }
+.todo-text p:last-child, .intro-text p:last-child { margin-bottom: 0; }
+.todo-text ul, .todo-text ol, .intro-text ul, .intro-text ol { margin: 4px 0 4px 18px; }
+.todo-text h4, .todo-text h5, .todo-text h6,
+.intro-text h4, .intro-text h5, .intro-text h6 {
+  font-size: 12.5px; font-weight: 600; margin: 6px 0 2px;
+}
+.todo-text code, .intro-text code {
+  font-family: var(--font-mono); font-size: 11.5px;
+  background: hsl(var(--muted)); padding: 1px 4px; border-radius: 3px;
+}
+.todo-text a, .intro-text a { color: hsl(var(--foreground)); }
+
+/* ─── Attachments ─────────────────────────────────────────────────────────── */
+.attachment-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.attachment-row__name {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: hsl(var(--foreground)); text-decoration: none; font-size: 12px;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.attachment-row__name:hover { text-decoration: underline; }
+.attachment-row__size { font-size: 11px; color: hsl(var(--muted-foreground)); white-space: nowrap; }
+.attachment-upload input { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.attachment-upload input:disabled { opacity: .5; }
+
+/* The chart is pinned to the top of the window, so anything below it would be
+   unreachable: the footer is pinned to the bottom instead, one line tall, and
+   the chart's height subtracts it. Everything in it belongs to this browser
+   rather than to the deployment: how it asks, how it looks, what it shows. */
+footer {
+  position: sticky; bottom: 0; z-index: 3;
+  margin-top: 20px; padding: 5px 2px;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  font-size: 11.5px; color: hsl(var(--muted-foreground));
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; min-height: var(--footer-h);
+}
+/* The two other surfaces of the desktop header, which the phone hides. */
+.footer-more { display: none; gap: 8px; flex-wrap: wrap; }
+/* The links duplicate the header nav on a desktop; the settings do not live
+   anywhere else, so that button stays wherever the footer is. */
+.footer-settings { flex: none; }
+.footer-line { color: hsl(var(--muted-foreground) / .8); }
+
+/* ─── Milestones ──────────────────────────────────────────────────────────────
+   The diamond is the one motif of the interface, and it means one thing: a
+   date that matters. It sits above the bars, never behind them. */
+.milestone {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; padding: 0; border: none; background: none;
+  display: flex; align-items: center; justify-content: center;
+  color: hsl(var(--foreground)); cursor: pointer; z-index: 3;
+}
+.milestone .icon { width: 9px; height: 9px; }
+.milestone:hover .icon { width: 11px; height: 11px; }
+.chips .badge--outline .icon { width: 8px; height: 8px; fill: currentColor; }
+
+/* ─── Dialog ──────────────────────────────────────────────────────────────── */
+.dialog-overlay {
+  position: fixed; inset: 0; z-index: 6000; background: hsl(222 47% 6% / .6);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.dialog {
+  background: hsl(var(--popover)); color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border)); border-radius: var(--radius);
+  box-shadow: 0 24px 60px hsl(222 47% 6% / .45);
+  width: min(420px, 100%); padding: 18px;
+}
+.dialog--wide { width: min(640px, 100%); }
+.dialog__title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+
+/* The gallery: every card is drawn with the tokens of the theme it offers, so
+   the preview is the thing itself rather than a picture of it. */
+.theme-sections { max-height: 56vh; overflow-y: auto; margin-top: 12px; }
+.theme-section__title {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: hsl(var(--muted-foreground)); margin: 12px 0 6px;
+  padding-bottom: 4px; border-bottom: 1px solid hsl(var(--border));
+}
+.theme-section__title:first-child { margin-top: 0; }
+.theme-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.theme-card {
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  padding: 10px; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px);
+  font-family: inherit; font-size: 12px; cursor: pointer; text-align: left;
+}
+.theme-card:hover { border-color: hsl(var(--ring) / .7); }
+.theme-card--active { box-shadow: 0 0 0 2px hsl(var(--ring) / .8); }
+.theme-card__strip { display: flex; gap: 4px; }
+.theme-card__dot { width: 14px; height: 14px; border-radius: 999px; }
+.theme-card__name { font-weight: 600; }
+.dialog__body { font-size: 12.5px; color: hsl(var(--muted-foreground)); }
+.dialog__fields { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.dialog__field { display: flex; flex-direction: column; gap: 3px; }
+.dialog__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.dialog__actions--start { justify-content: flex-start; }
+.detail-header__actions { display: flex; gap: 6px; align-items: center; }
+
+/* ─── Toasts ──────────────────────────────────────────────────────────────── */
+#toast-host {
+  position: fixed; right: 20px; bottom: 20px; z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px; max-width: 420px;
+}
+.toast {
+  padding: 9px 12px; border-radius: calc(var(--radius) - 2px); font-size: 12px; font-weight: 500;
+  border: 1px solid hsl(var(--border)); box-shadow: 0 8px 24px hsl(222 47% 11% / .18);
+  background: hsl(var(--popover)); color: hsl(var(--popover-foreground));
+  animation: toast-in .15s ease-out;
+}
+.toast--error { background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); border-color: transparent; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
+
+/* ─── Tabs ────────────────────────────────────────────────────────────────── */
+.tabs {
+  display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 12px;
+  background: hsl(var(--muted)); border-radius: calc(var(--radius) - 2px);
+}
+.tab {
+  background: none; border: none; border-radius: calc(var(--radius) - 4px);
+  padding: 5px 12px; font-family: inherit; font-size: 12px; font-weight: 500;
+  color: hsl(var(--muted-foreground)); cursor: pointer;
+}
+.tab--active { background: hsl(var(--card)); color: hsl(var(--foreground)); }
+.tabs--sm { margin: 0; padding: 2px; gap: 2px; vertical-align: middle; }
+.tabs--sm .tab { padding: 2px 8px; font-size: 11px; }
+
+/* ─── Hierarchy view ──────────────────────────────────────────────────────── */
+.header-side { display: flex; align-items: center; gap: 8px; }
+.view-panel { display: flex; flex-direction: column; gap: 10px; }
+.view-hint { font-size: 11.5px; color: hsl(var(--muted-foreground)); max-width: 70ch; }
+.view-hint code { font-family: var(--font-mono); font-size: 11px; }
+.view-actions { display: flex; gap: 8px; align-items: center; }
+#vault-markdown { min-height: 60vh; }
+
+.tree, .tree ul { list-style: none; }
+.tree ul { margin-left: 14px; padding-left: 10px; border-left: 1px solid hsl(var(--border)); }
+.tree__group {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  display: block; margin-top: 14px;
+}
+.tree__group > .group-row__marker { display: inline-block; margin-right: 6px; }
+.tree__group:first-child { margin-top: 0; }
+.tree__project {
+  font-size: 13px; font-weight: 400; text-transform: none; letter-spacing: 0;
+  margin: 6px 0;
+}
+.tree__row { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.tree__when { color: hsl(var(--muted-foreground)); font-size: 11px; }
+
+/* The structure view is a reading of the file: keys in the file's own font,
+   values as they are stored, and a multi-line value kept as it was typed. */
+.tree__project > details > summary { cursor: pointer; list-style-position: outside; }
+.tree__project > details > summary::marker { color: hsl(var(--muted-foreground)); }
+.tree__entry { font-size: 11.5px; margin: 1px 0; }
+.tree__key {
+  font-family: var(--font-mono); font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.tree__key::after { content: ':'; }
+.tree__value { color: hsl(var(--foreground)); }
+.tree__empty { color: hsl(var(--muted-foreground) / .6); font-style: italic; }
+.tree__text {
+  white-space: pre-wrap; word-break: break-word;
+  margin: 2px 0 4px 10px; padding: 6px 8px;
+  border-left: 2px solid hsl(var(--border)); background: hsl(var(--muted) / .5);
+  border-radius: 0 4px 4px 0; color: hsl(var(--foreground));
+  font-size: 11.5px; line-height: 1.45;
+}
+
+/* ─── Compact: the whole list at one line each ────────────────────────────────
+   A depth level, and the stylesheet's job alone. The rows keep every attribute
+   they have and nothing about the document changes: what goes is everything a
+   ranked reading does not need: the signals, the row actions, the resource
+   indent. The span bar stays, because a chart with empty lanes is not a chart,
+   and so does the rail, which is the point of the level. */
+:root[data-compact] .project-main-row .project-row__signals,
+:root[data-compact] .project-main-row .project-row__actions,
+:root[data-compact] .project-main-row [data-action="toggle-project"] { display: none; }
+:root[data-compact] .project-cell { padding-top: 1px; padding-bottom: 1px; }
+:root[data-compact] .timeline-row--project { min-height: var(--compact-row-h); }
+/* One line means one line: a title too long for the column is cut, not wrapped,
+   or a single project pushes every other one off the screen. */
+:root[data-compact] .project-identity { min-width: 0; }
+:root[data-compact] .project-title {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+:root[data-compact] .summary-bar { height: 10px; }
+
+/* ─── Settings ────────────────────────────────────────────────────────────────
+   One overlay, three subjects. A preference is a sentence and a reason, not a
+   word next to a box: the hint is what stops the list becoming a quiz. */
+.settings-panel { width: min(560px, 100%); }
+.settings-body { display: flex; flex-direction: column; gap: 22px; }
+.settings-group { display: flex; flex-direction: column; gap: 10px; }
+.settings-group__title {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: hsl(var(--muted-foreground));
+}
+.settings-option { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.settings-option input { margin-top: 2px; flex: none; }
+.settings-option__text { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.settings-option__hint { font-size: 11.5px; color: hsl(var(--muted-foreground)); }
+.settings-group__note {
+  font-size: 11.5px; color: hsl(var(--muted-foreground)); margin: -4px 0 2px; max-width: 46em;
+}
+
+/* The band controls. A preset is the guidance; the sliders are for anyone who
+   wants past it. The swatch shows the colour as it comes out on this theme,
+   which is not the hue that went in. */
+.settings-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.settings-presets .btn { gap: 6px; }
+.settings-presets .btn::before {
+  content: ""; width: 9px; height: 9px; border-radius: 2px; flex: none;
+  background: var(--swatch, currentColor);
+}
+.settings-range { display: grid; grid-template-columns: 5.5em 1fr 4.5em; gap: 10px; align-items: center; }
+.settings-range__label { font-size: 12.5px; }
+.settings-range__value {
+  font-size: 11.5px; color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums; text-align: right;
+}
+.settings-range input[type="range"] { width: 100%; min-width: 0; accent-color: hsl(var(--ring)); }
+.hue-track {
+  -webkit-appearance: none; appearance: none; height: 10px; border-radius: 5px;
+  background: linear-gradient(90deg, hsl(0 70% 50%), hsl(60 70% 50%), hsl(120 70% 50%),
+              hsl(180 70% 50%), hsl(240 70% 50%), hsl(300 70% 50%), hsl(360 70% 50%));
+}
+.hue-track::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: hsl(var(--card)); border: 2px solid hsl(var(--foreground)); cursor: pointer;
+}
+.hue-track::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: hsl(var(--card)); border: 2px solid hsl(var(--foreground)); cursor: pointer;
+}
+
+/* ─── Dialog: the Advanced Edit overlay ───────────────────────────────────── */
+.advedit-overlay {
+  position: fixed; inset: 0; background: hsl(222 47% 6% / .6);
+  z-index: 5000; display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.advedit-panel {
+  background: hsl(var(--card)); color: hsl(var(--card-foreground)); border-radius: var(--radius);
+  width: min(1100px, 100%); max-height: 92vh; display: flex; flex-direction: column;
+  box-shadow: 0 24px 60px hsl(222 47% 6% / .45); overflow: hidden;
+}
+.advedit-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid hsl(var(--border));
+}
+.advedit-header h3 { font-size: 14px; font-weight: 600; }
+.advedit-tabs { margin: 12px 18px 0; align-self: flex-start; }
+.advedit-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
+.advedit-footer {
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding: 12px 18px; border-top: 1px solid hsl(var(--border));
+}
+.advedit-raw-textarea {
+  min-height: 55vh; font-family: var(--font-mono);
+  font-size: 12.5px; white-space: pre; tab-size: 2;
+}
+.advedit-fieldset {
+  border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px);
+  padding: 12px 14px; margin-bottom: 12px;
+}
+.advedit-fieldset legend {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: hsl(var(--muted-foreground)); padding: 0 6px;
+}
+.advedit-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 14px; }
+.advedit-field { display: flex; flex-direction: column; gap: 4px; }
+.advedit-field label { font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); }
+.advedit-row {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) auto;
+  gap: 8px; align-items: end; margin-bottom: 8px; padding-bottom: 8px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.advedit-row:last-child { border-bottom: none; }
+.advedit-rows { display: flex; flex-direction: column; }
+.advedit-field--wide { grid-column: 1 / -1; }
+.advedit-checkbox {
+  width: 16px; height: 16px; align-self: flex-start; margin-top: 4px;
+  accent-color: hsl(var(--primary));
+}
+.advedit-hint { font-size: 10px; color: hsl(var(--muted-foreground)); }
+.advedit-body-text { min-height: 120px; }
+input[type="checkbox"] { accent-color: hsl(var(--primary)); }
+
+/* ─── The phone's surfaces ─────────────────────────────────────────────────────
+   The list and the tab bar exist only below 900px; above it the chart is the
+   interface and these are not rendered at all. */
+.plist, .tabbar { display: none; }
+
+/* ─── Small screens ────────────────────────────────────────────────────────────
+   The page reflows; the chart does not, because a timeline is wide by nature, so it
+   keeps scrolling inside .gantt-scroll while the page itself never does.
+
+   The paddings below are not arbitrary: they add up to the 60px that
+   .detail-panel-wrapper subtracts from the viewport, so the sticky detail
+   panel lands exactly inside its column. */
+@media (max-width: 900px) {
+  :root { --label-w: 190px; }
+
+  body { padding: 10px 10px calc(58px + env(safe-area-inset-bottom, 0px)); }
+  /* A phone needs the whole screen for rows: nothing is pinned, and the page
+     scrolls as one. */
+  .gantt-box { padding: 10px; position: static; max-height: none; display: block; }
+  .gantt-scroll { min-height: 0; }
+  footer { position: static; }
+  .detail-cell { padding: 8px; }
+
+  header { flex-direction: column; align-items: flex-start; gap: 6px; }
+  h1 { font-size: 18px; }
+
+  .gantt-toolbar { flex-direction: column; align-items: stretch; gap: 6px; }
+  .gantt-search .form-input { width: 100%; }
+  .gantt-toolbar__actions { gap: 4px; }
+  .gantt-toolbar__actions .btn { flex: 1 1 auto; }
+
+  /* Title on its own full-width line: sharing the row with caret and badge
+     leaves it ~120px and four lines of wrapping. */
+  .project-identity { flex-wrap: wrap; flex-basis: 100%; }
+  .project-title { word-break: normal; flex: 1 1 100%; }
+  .project-row__signals { margin-left: 0; }
+  .detail-grid { grid-template-columns: 1fr; gap: 14px; }
+  .detail-panel-box { padding: 12px; }
+  .field-row, .link-row, .field-inline { flex-wrap: wrap; }
+  /* Every row in the panel wraps rather than reaching past the right edge:
+     the platform chips, the Add button beside a heading, the ✕ that removes a
+     link. A long unbroken value (a URL, a Jira key) breaks instead of pushing
+     its row wider than the phone. */
+  .detail-panel-box, .detail-col, .detail-field, .chips, .link-row,
+  .field-heading, .global-todo-card { min-width: 0; }
+  .field-heading { flex-wrap: wrap; row-gap: 4px; }
+  .chips > *, .link-row > *, .attachment-row > * {
+    min-width: 0; max-width: 100%; overflow-wrap: anywhere;
+  }
+  /* A chip is a single-line pill on a desktop because a desktop has the room.
+     `Backend Dev  Ada Lovelace  24 August 26 → 7 October 26` is wider than a
+     phone, and `white-space: nowrap` made it run off the right of the screen
+     instead: inside the pill it now wraps. */
+  .chips .badge {
+    white-space: normal; flex-wrap: wrap; row-gap: 2px;
+    text-align: left; border-radius: 12px;
+  }
+  /* A link chip is one line on a desktop because a desktop has the room. A
+     pasted URL does not fit 300px, and a chip that cannot fit has to wrap. */
+  .jira-link { white-space: normal; text-align: left; }
+  /* One control per line: side by side at this width every field truncates. */
+  .field-row > * { flex: 1 1 100%; }
+  /* The date takes a line of its own, the two buttons share the next. */
+  .add-todo-form__row { flex-wrap: wrap; }
+  .add-todo-form__row > .due-field { flex: 1 1 100%; }
+  .add-todo-form__row > .btn { flex: 1 1 0; }
+  .due-field .form-input--date { flex: 1 1 auto; }
+  .form-input--narrow, .form-input--date { width: auto; }
+
+  .global-todo-card__head { flex-wrap: wrap; gap: 6px; }
+  /* Three buttons and a two-line title do not share 350px: the title takes the
+     first line and Rename, Move and Close take the second. */
+  .detail-header { flex-wrap: wrap; }
+  .detail-header__actions { flex: 1 1 auto; justify-content: flex-end; }
+
+  /* The note text shares the line with the checkbox and wraps inside its own
+     column; the due badge and the delete wrap underneath. Giving the text a
+     percentage basis put it under a 44pt checkbox instead of beside it. */
+  .todo-item-row { flex-wrap: wrap; }
+  /* The text takes what is left of the first line beside the 44pt checkbox,
+     rather than being squeezed into a 150px column between two controls. The
+     delete sits in the corner instead of in the flow, so it never costs a
+     line of its own; only a due date wraps underneath. */
+  .todo-item-row { position: relative; padding-right: 46px; }
+  .todo-text { flex: 1 1 calc(100% - 60px); min-width: 0; }
+  .todo-item-row > [data-action="todo-delete"] { position: absolute; top: 0; right: 0; }
+  .global-todos-title { flex-wrap: wrap; gap: 4px; }
+
+  /* 16px keeps iOS from zooming the viewport when a field takes focus. */
+  .form-input, textarea { font-size: 16px; }
+
+  .advedit-panel { width: 100%; max-height: 100%; border-radius: 0; }
+  .advedit-grid { grid-template-columns: 1fr; }
+  .advedit-row { grid-template-columns: 1fr; }
+}
+
+/* ─── Touch ────────────────────────────────────────────────────────────────────
+   Two controls are mouse-only by construction: the column resize handle listens
+   for mousedown/mousemove, and row reordering uses HTML5 drag and drop, which
+   iOS Safari does not implement. Hiding them beats showing a control that does
+   nothing when tapped. And a row action revealed by hover is unreachable with
+   no hover, so on touch it is simply always there. */
+/* ─── The phone ────────────────────────────────────────────────────────────────
+   A phone is not a smaller chart: it is four readings of the same cards, one at
+   a time, chosen from a bar at the bottom where the thumb is. */
+@media (max-width: 900px) {
+  body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
+
+  /* One surface at a time. The root says which, under a different attribute
+     name than the sections, or `[data-surface] { display: none }` would match
+     <html> itself and take the whole page with it. */
+  [data-shell="chart"] [data-surface] { display: none; }
+  :root:not([data-view]) .plist,
+  :root[data-view="projects"] .plist { display: block; }
+  :root[data-view="chart"] [data-surface="chart"],
+  :root[data-view="notes"] [data-surface="notes"],
+  :root[data-view="more"] [data-surface="more"] { display: block; }
+  /* The header nav duplicates the tab bar, and the page title does not earn a
+     line of its own on 390px. On a page with no tab bar, the hierarchy view,
+     the header is the only way back, so it stays. */
+  [data-shell="chart"] header { display: none; }
+
+  .tabbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    background: hsl(var(--card)); border-top: 1px solid hsl(var(--border));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .tabbar__tab {
+    flex: 1 1 0; display: flex; flex-direction: column; align-items: center;
+    gap: 2px; padding: 8px 4px; background: none; border: none;
+    font-family: inherit; font-size: 10px; color: hsl(var(--muted-foreground));
+    cursor: pointer;
+  }
+  .tabbar__tab .icon { width: 18px; height: 18px; }
+  .tabbar__tab--active { color: hsl(var(--foreground)); }
+
+  /* ── The list ── */
+  .plist__search { position: sticky; top: 0; z-index: 2; padding: 8px 0; background: hsl(var(--background)); }
+  .plist__search .form-input { width: 100%; }
+  .plist__group { margin-bottom: 14px; }
+  .plist__title {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+    color: hsl(var(--muted-foreground));
+    position: sticky; top: 46px; z-index: 1;
+    background: hsl(var(--background)); padding: 4px 0;
+  }
+  .pcard {
+    display: flex; flex-direction: column; gap: 5px; width: 100%;
+    padding: 9px 11px; margin-bottom: 6px; text-align: left;
+    background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+    border-radius: var(--radius); font-family: inherit; color: inherit;
+    cursor: pointer;
+  }
+  .pcard__head { display: flex; align-items: baseline; gap: 6px; }
+  .pcard__name { font-size: 15px; font-weight: 500; line-height: 1.25; }
+  .pcard__signals { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pcard__when { font-size: 11.5px; color: hsl(var(--foreground)); }
+  .pcard__relative { color: hsl(var(--muted-foreground)); }
+  .pcard__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .pcard__people { display: flex; gap: 4px; }
+  .pcard__who {
+    font-size: 9.5px; font-weight: 600; letter-spacing: .02em;
+    width: 22px; height: 22px; border-radius: 999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: hsl(var(--muted)); color: hsl(var(--muted-foreground));
+  }
+  .pcard__who--more { background: none; }
+  /* A card with its panel under it is the head of an accordion: it stops
+     closing at the bottom, and the panel picks the line up again. */
+  .pcard.is-open {
+    margin-bottom: 0; background: hsl(var(--muted));
+    border-bottom-color: transparent;
+    border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+  }
+  .pcard__notes { font-size: 11px; color: hsl(var(--muted-foreground)); }
+
+  /* The whole scale in one line: the span, its milestones, and today. */
+  .spark {
+    position: relative; display: block; height: 6px; border-radius: 3px;
+    background: hsl(var(--muted));
+  }
+  .spark__bar {
+    position: absolute; top: 0; bottom: 0; border-radius: 3px;
+    background: var(--rail, hsl(var(--muted-foreground)));
+  }
+  .spark__mark {
+    position: absolute; top: -2px; width: 5px; height: 5px; margin-left: -2px;
+    background: hsl(var(--foreground)); transform: rotate(45deg);
+  }
+  .spark__today { position: absolute; top: -2px; bottom: -2px; width: 2px; background: hsl(var(--today)); }
+
+  /* The notes tab is the aggregated panel and nothing else, so it is never
+     collapsed there, and a control that cannot do anything has no business
+     being on screen: the caret goes with the collapsing, and the header stops
+     pretending to be a button. */
+  :root[data-view="notes"] #global-todos-content { display: block !important; }
+  :root[data-view="notes"] #btn-toggle-global-todos { display: none; }
+  :root[data-view="notes"] .global-todos-header {
+    position: sticky; top: 0; z-index: 2; cursor: default; pointer-events: none;
+  }
+
+  /* More: where the surfaces the header carried on a desktop end up. */
+  footer { flex-direction: column; align-items: stretch; gap: 14px; min-height: 0; }
+  .footer-line { order: 2; font-size: 11px; }
+  .footer-more { display: flex; }
+  .footer-more .btn { flex: 1 1 auto; justify-content: center; }
+  /* The surface rules make a shown surface a block; the footer is the one
+     that has an order of its own to keep. */
+  :root[data-view="more"] footer[data-surface="more"] { display: flex; }
+  .footer-settings { order: 1; justify-content: center; }
+
+  /* Less padding around what is only read, since the controls took more. */
+  .global-todos-content { padding: 10px; }
+  .global-todo-card { padding: 9px 10px; margin-bottom: 6px; }
+  .detail-col { gap: 10px; }
+  .intro-box { padding: 10px; margin-bottom: 10px; }
+  /* The card's padding beside a scroll area is width the timeline cannot use
+     and a white band the rows are cut against. The chart runs to the card's
+     edge, the way a table in a card does; the toolbar keeps its inset. */
+  .gantt-box { padding: 8px 0; }
+  .gantt-toolbar { padding: 0 8px; }
+  .detail-panel-box { padding: 10px; }
+
+  /* ── The chart tab ──
+     Occasional by design: you open it to look at a bar, or to show one to
+     somebody. The label column keeps the name and the caret and gives
+     everything else back to the timeline: the status, the deadline and the
+     actions are on the card you came from and in the sheet behind it. */
+  /* The caret takes the height of the row rather than a line of its own, and
+     the title wraps beside it: a project row was 87px for two lines of text. */
+  :root[data-view="chart"] { --label-w: 176px; }
+  :root[data-view="chart"] .project-identity { flex-wrap: nowrap; align-items: center; }
+  :root[data-view="chart"] .project-title {
+    flex: 1 1 auto; min-width: 0; line-height: 1.25;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  :root[data-view="chart"] .project-cell { padding: 2px 6px; }
+  :root[data-view="chart"] .project-row__signals,
+  :root[data-view="chart"] .project-row__actions { display: none; }
+  :root[data-view="chart"] .project-title { font-size: 12px; }
+  :root[data-view="chart"] .resource-line { font-size: 10px; }
+  /* A person's lane used to cost as much as a whole project (49px, of which
+     44 was the touch minimum for a button). The target here is the row, not a
+     button: it is 34px tall and as wide as the screen, which a finger finds
+     more easily than a 44pt square. Six lanes now fit where four did. */
+  :root[data-view="chart"] .resource-cell { padding: 1px 6px 1px 20px; }
+  :root[data-view="chart"] .resource-line[data-action] { min-height: 32px; }
+  /* The panel is bounded by the window, not by the table it sits in: the table
+     is as wide as the timeline, and a sticky cell that wide lets the controls
+     on its right (Close, Add, the ✕ of an attachment) run off the screen
+     with no way back. The gutter is everything standing to the left of the
+     panel (10 body + 8 chart box + 3 rail + 12 indent) plus the 10 of
+     body padding on the right, and 9 of slack for its own border. */
+  :root[data-view="chart"] .detail-panel-wrapper {
+    /* 3px of rail, 12px of indent, 12px of air on the right. */
+    max-width: calc(100cqw - 27px); margin-left: 12px;
+    /* It still has to stick, because the cell under it is as wide as the timeline,
+       so a static panel would scroll away with the bars. But it sticks where
+       it already stands, 12px of indent past the 3px rail, instead of at
+       the scrollport's edge: a threshold further left than the element is a
+       threshold it slides to before it holds. The panel belongs to the
+       project, not to the axis, so it does not move at all. */
+    left: 15px;
+  }
+  /* The rail belongs to the project, and the project's rows keep theirs in
+     view by being sticky. The cell is not sticky, since it is as wide as the
+     timeline, so the rail moves onto the panel, which is, and lands on the
+     same pixel as the rails above it at any scroll offset. */
+  :root[data-view="chart"] .detail-cell { padding: 0 0 10px; border-left-color: transparent; }
+  :root[data-view="chart"] .detail-panel-wrapper::after {
+    content: ''; position: absolute; left: -15px; top: 0; bottom: -10px;
+    width: 3px; background: var(--rail, transparent);
+  }
+  :root[data-view="chart"] .gantt-toolbar__actions { justify-content: space-between; }
+
+  /* The notes and actions of a project read top-first on a phone: what is
+     being captured comes before the reference material beside it. */
+  .detail-grid { display: flex; flex-direction: column; }
+  .detail-col:last-child { order: -1; }
+}
+
+/* ─── Touch ────────────────────────────────────────────────────────────────────
+   Anything a finger operates is at least 44pt in both directions, the iOS
+   guideline, and the reason half of these rules exist. Everything a finger
+   does *not* operate gives its space back instead: the two go together, or the
+   screen fills with padding around controls nobody can hit. */
+@media (pointer: coarse) {
+  .col-resize-handle, .drag-handle { display: none; }
+  /* Neither of these can happen with a finger; the affordance goes with them. */
+  .task-bar[data-project] { cursor: default; }
+  .todo-item-row[draggable] { cursor: default; }
+  .project-row__actions { opacity: 1; }
+
+  .btn { height: 44px; padding: 0 14px; }
+  .btn--sm { height: 44px; padding: 0 12px; }
+  .btn--icon, .btn--sm.btn--icon { width: 44px; }
+  .project-line--head .btn--icon, .group-row__inner .btn--icon { width: 44px; height: 44px; }
+  .tab { min-height: 40px; }
+  .tag-opt-btn { min-height: 44px; padding: 0 14px; }
+  .todo-check { min-width: 44px; min-height: 44px; margin: -6px 0 -6px -6px; }
+  .todo-item-row input[type="checkbox"] { width: 22px; height: 22px; }
+  .todo-item-row { min-height: 44px; align-items: center; }
+  .attachment-row { min-height: 44px; }
+  .badge--outline[data-action] { min-height: 44px; padding: 4px 10px; }
+  .resource-line[data-action] { min-height: 44px; }
+  select.form-input, input.form-input { min-height: 44px; }
+}

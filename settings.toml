@@ -1,0 +1,130 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GanttBit: deployment settings
+#
+# Everything an organisation needs to change lives here: no Python edit needed
+# to add a role, a team member or a project code.
+# A settings.local.toml next to this file (git-ignored) is layered on top of it:
+# it only needs the handful of keys that differ. Tables merge, lists replace.
+# `--settings PATH` bypasses both and reads that file alone.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[app]
+title    = "GanttBit"
+subtitle = "Mobile Delivery — Unified View & Control Center"
+owner    = "Unassigned"          # shown as "DM:" in the header
+footer   = "GanttBit — local second brain"
+
+[server]
+host = "127.0.0.1"               # loopback by default; the write API is unauthenticated
+port = 8080
+max_upload_mb = 25               # cap for a single attachment upload
+# Shared secret demanded of every request when `host` is not loopback. Left
+# empty, one is generated at startup and printed with the URL to open.
+token = ""
+
+[vault]
+# Paths are resolved relative to the repository root unless absolute.
+root     = ".knowledge"
+projects = "02-projects/active"
+
+[links]
+jira_base_url          = "https://jira.example.com/browse/"
+jira_placeholder       = "e.g. NIMBUS-1042"
+confluence_placeholder = "https://confluence.example.com/display/..."
+figma_placeholder      = "https://www.figma.com/design/..."
+
+[timeline]
+# Extend the chart at least up to this date, even when no task reaches it.
+min_end = 2026-12-31
+
+[locale]
+months = ["January", "February", "March", "April", "May", "June",
+          "July", "August", "September", "October", "November", "December"]
+month_abbr = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+# One letter per weekday, Monday first: the optional row under the day numbers.
+weekday_initials = ["M", "T", "W", "T", "F", "S", "S"]
+
+[defaults]
+# Platforms offered as toggles in the detail panel.
+platforms = ["iOS", "Android", "Backend (dev)", "Backend (config)", "Content", "QA"]
+# Colour for timeline rows whose `who` matches no one in the roster below.
+fallback_role  = { label = "Member", color = "#78909c" }
+
+# ─── Roles ───────────────────────────────────────────────────────────────────
+# `squads` below assigns a role explicitly per member; `roles` is only the
+# fallback for timeline rows with no matching member (keyword search).
+[[roles]]
+key      = "backend"
+label    = "Backend Dev"
+color    = "#1e88e5"
+keywords = ["Backend", "Server"]
+
+[[roles]]
+key      = "ios"
+label    = "iOS Dev"
+color    = "#1e88e5"
+keywords = ["iOS"]
+
+[[roles]]
+key      = "android"
+label    = "Android Dev"
+color    = "#1e88e5"
+keywords = ["Android"]
+
+[[roles]]
+key      = "qa"
+label    = "QA"
+color    = "#ffb300"
+keywords = ["QA", "Test"]
+
+[[roles]]
+key      = "content"
+label    = "Content"
+color    = "#ab47bc"
+keywords = ["Content", "UX"]
+
+[[roles]]
+key      = "pm"
+label    = "PM / DM"
+color    = "#78909c"
+keywords = ["PM", "Delivery Manager"]
+
+# ─── Squads: the roster a card's `who` is resolved against ──────────────────
+# A task names a person: `- who: Ada Lovelace`. The `prefix` is matched too,
+# so a card written when the timeline lived in a plan file still resolves.
+# `section` only groups the roster; nothing reads it.
+[[squads]]
+section = "Backend"
+members = [
+  { prefix = "Backend Dev #1", name = "Ada Lovelace",     role = "backend" },
+  { prefix = "Backend Dev #2", name = "Grace Hopper",     role = "backend" },
+  { prefix = "Backend Dev #3", name = "Alan Turing",      role = "backend" },
+]
+
+[[squads]]
+section = "iOS"
+members = [
+  { prefix = "iOS Dev #1", name = "Rita Levi",       role = "ios" },
+  { prefix = "iOS Dev #2", name = "Enrico Fermi",    role = "ios" },
+  { prefix = "iOS Dev #3", name = "Nikola Tesla",    role = "ios" },
+  { prefix = "iOS Dev #4", name = "Hedy Lamarr",     role = "ios" },
+]
+
+[[squads]]
+section = "Android"
+members = [
+  { prefix = "Android Dev #1", name = "Katherine Johnson", role = "android" },
+  { prefix = "Android Dev #2", name = "Linus Pauling",     role = "android" },
+  { prefix = "Android Dev #3", name = "Barbara McClintock", role = "android" },
+  { prefix = "Android Dev #4", name = "Kip Thorne",        role = "android" },
+]
+
+[[squads]]
+section = "QA & PM"
+members = [
+  { prefix = "QA #1",            name = "Margaret Hamilton", role = "qa" },
+  { prefix = "QA #2",            name = "Jean Bartik",       role = "qa" },
+  { prefix = "PM #1",            name = "Mary Jackson",      role = "pm" },
+  { prefix = "Delivery Manager", name = "Unassigned",        role = "pm" },
+]

@@ -1,0 +1,199 @@
+/* ============================================================================
+   GanttBit: the public page.
+
+   The same vocabulary as the application: the shadcn tokens it was ported onto,
+   the same diamond, light and dark by the system preference. A landing page
+   that looks like the thing it is selling is the cheapest honest signal there
+   is, and the only one this page makes.
+   ========================================================================== */
+
+:root {
+  --background: 210 20% 97%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 19% 38%;
+  --border: 214 32% 91%;
+  --primary: 222 47% 11%;
+  --primary-foreground: 210 40% 98%;
+  --accent: 210 40% 94%;
+  --today: 142 69% 27%;
+  /* The priority ramp: one hue, fading down the list. The application solves
+     these against whichever theme is on; the page only has to show the idea. */
+  --band-1: 223 53% 45%;
+  --band-2: 223 40% 57%;
+  --band-3: 223 26% 68%;
+  --band-4: 223 12% 79%;
+  --radius: 10px;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 96%;
+    --card: 222 44% 10%;
+    --muted: 217 33% 15%;
+    --muted-foreground: 215 20% 70%;
+    --border: 217 33% 20%;
+    --primary: 210 40% 96%;
+    --primary-foreground: 222 47% 11%;
+    --accent: 217 33% 20%;
+    --today: 142 55% 42%;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { width: min(1060px, 100% - 40px); margin: 0 auto; }
+section { padding: 64px 0; border-top: 1px solid hsl(var(--border)); }
+section:first-of-type { border-top: none; }
+
+h1, h2, h3 { line-height: 1.2; letter-spacing: -.02em; }
+h1 { font-size: clamp(32px, 5vw, 46px); font-weight: 600; }
+h2 { font-size: clamp(22px, 3vw, 28px); font-weight: 600; margin-bottom: 8px; }
+h3 { font-size: 15px; font-weight: 600; }
+p { color: hsl(var(--muted-foreground)); }
+.lead { font-size: clamp(16px, 2vw, 19px); max-width: 62ch; }
+.eyebrow {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
+  color: hsl(var(--muted-foreground)); margin-bottom: 10px;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────────── */
+header.top {
+  position: sticky; top: 0; z-index: 5;
+  background: hsl(var(--background) / .88); backdrop-filter: blur(8px);
+  border-bottom: 1px solid hsl(var(--border));
+}
+.top__inner { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; }
+.mark { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.mark svg { width: 12px; height: 12px; fill: currentColor; }
+.top nav { display: flex; align-items: center; gap: 18px; font-size: 13px; }
+.top nav a { color: hsl(var(--muted-foreground)); text-decoration: none; }
+.top nav a:hover { color: hsl(var(--foreground)); }
+
+/* ─── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 16px; border-radius: 8px; border: 1px solid transparent;
+  font-size: 14px; font-weight: 500; text-decoration: none; cursor: pointer;
+}
+.btn--primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.btn--ghost { border-color: hsl(var(--border)); color: hsl(var(--foreground)); }
+.btn--ghost:hover { background: hsl(var(--accent)); }
+
+/* ─── Hero ───────────────────────────────────────────────────────────────── */
+.hero { padding: 72px 0 56px; }
+.hero__actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 26px 0 8px; }
+.hero__note { font-size: 12.5px; color: hsl(var(--muted-foreground)); }
+
+/* A miniature of the interface, drawn rather than photographed: no screenshot
+   to go stale, and it is the same design language either way. */
+.shot {
+  margin-top: 40px; background: hsl(var(--card));
+  border: 1px solid hsl(var(--border)); border-radius: var(--radius);
+  overflow: hidden; box-shadow: 0 20px 60px hsl(222 47% 11% / .10);
+}
+.shot__bar {
+  display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+  border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--muted));
+  font-size: 11px; color: hsl(var(--muted-foreground));
+}
+.shot__dot { width: 8px; height: 8px; border-radius: 999px; background: hsl(var(--border)); }
+.shot__grid { display: grid; grid-template-columns: 210px 1fr; }
+.shot__labels { border-right: 1px solid hsl(var(--border)); }
+.shot__lane { position: relative; border-bottom: 1px solid hsl(var(--border) / .6); height: 30px; }
+.shot__row {
+  display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
+  border-bottom: 1px solid hsl(var(--border) / .6); font-size: 12px;
+  border-left: 3px solid var(--rail, transparent);
+}
+.shot__row--group {
+  background: hsl(var(--muted)); font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; color: hsl(var(--muted-foreground));
+}
+.shot__row--sub { font-size: 10.5px; color: hsl(var(--muted-foreground)); padding-left: 24px; }
+.shot__bar-piece {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  height: 13px; border-radius: 3px;
+}
+.shot__mark {
+  position: absolute; top: 50%; width: 7px; height: 7px; margin-top: -4px;
+  background: hsl(var(--foreground)); transform: rotate(45deg);
+}
+.shot__today { position: absolute; top: 0; bottom: 0; width: 2px; background: hsl(var(--today) / .8); }
+.pill {
+  font-size: 9.5px; font-weight: 600; padding: 1px 6px; border-radius: 999px;
+  background: hsl(var(--muted)); color: hsl(var(--muted-foreground));
+}
+.pill--active { background: #e8f5e9; color: #2e7d32; }
+.pill--blocked { background: #ffebee; color: #b71c1c; }
+
+/* ─── Grids ──────────────────────────────────────────────────────────────── */
+.grid { display: grid; gap: 16px; margin-top: 28px; }
+.grid--3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.grid--2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.card {
+  background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+  border-radius: var(--radius); padding: 18px;
+}
+.card h3 { margin-bottom: 6px; }
+.card p { font-size: 13.5px; }
+
+pre {
+  background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+  border-radius: var(--radius); padding: 16px; overflow-x: auto;
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6;
+  color: hsl(var(--foreground));
+}
+code { font-family: var(--font-mono); font-size: .92em; }
+p code { background: hsl(var(--muted)); padding: 1px 5px; border-radius: 4px; }
+
+/* ─── Plans ──────────────────────────────────────────────────────────────── */
+.plan { display: flex; flex-direction: column; }
+.plan--main { border-color: hsl(var(--foreground) / .35); }
+.plan__price { font-size: 28px; font-weight: 600; letter-spacing: -.02em; margin: 10px 0 2px; }
+.plan__price small { font-size: 13px; font-weight: 400; color: hsl(var(--muted-foreground)); }
+.plan ul { list-style: none; margin: 14px 0 18px; display: grid; gap: 7px; }
+.plan li { font-size: 13.5px; color: hsl(var(--muted-foreground)); padding-left: 18px; position: relative; }
+.plan li::before {
+  content: ''; position: absolute; left: 3px; top: 8px;
+  width: 6px; height: 6px; background: hsl(var(--foreground)); transform: rotate(45deg);
+}
+.plan .btn { margin-top: auto; justify-content: center; }
+.badge-soon {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  padding: 2px 7px; border-radius: 999px; border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+}
+
+.faq { display: grid; gap: 14px; margin-top: 24px; }
+.faq details {
+  background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+  border-radius: var(--radius); padding: 14px 16px;
+}
+.faq summary { font-weight: 600; font-size: 14.5px; cursor: pointer; }
+.faq p { font-size: 13.5px; margin-top: 8px; }
+
+footer.bottom {
+  border-top: 1px solid hsl(var(--border)); padding: 28px 0 48px;
+  font-size: 12.5px; color: hsl(var(--muted-foreground));
+  display: flex; gap: 14px; justify-content: space-between; flex-wrap: wrap;
+}
+footer.bottom a { color: inherit; }
+
+@media (max-width: 720px) {
+  section { padding: 44px 0; }
+  .shot__grid { grid-template-columns: 130px 1fr; }
+  .top nav a:not(.btn) { display: none; }
+}
