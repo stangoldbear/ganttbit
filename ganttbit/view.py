@@ -265,13 +265,7 @@ def render_detail_row(project, group, at=100.0, settings=None):
     estimates = project_estimates(project)
     in_force = latest_estimate(project)
     estimate_chips = ''.join(
-        f'<button type="button" class="badge badge--outline" data-action="estimate-open"'
-        f'{attrs(project=project_id, estimate=row.get("id", ""), stage=row.get("stage", ""), note=row.get("note", ""))}'
-        f' data-value="{esc(row.get("value", ""))}" data-date="{esc(row.get("date", ""))}">'
-        f'<span class="chip-when">{esc(row.get("stage", ""))}</span>'
-        f'{esc(row.get("value", ""))}'
-        f'{" — now" if row is in_force else ""}</button>'
-        for row in estimates
+        _estimate_chip(project_id, row, row is in_force) for row in estimates
     ) or '<span class="editable-empty">None</span>'
 
     milestones = project_milestones(project, config)
@@ -1045,6 +1039,29 @@ def _entry(key, value, path):
     return (f'<li class="tree__entry tree__entry--branch" data-key="{esc(key)}"><details open>'
             f'<summary><span class="tree__key">{esc(key)}</span></summary>'
             f'{_entry_tree(value, path)}</details></li>')
+
+
+def _estimate_chip(project_id, row, in_force):
+    """
+    One estimate in the panel: its stage, its first line, and whether it stands.
+
+    A value is a number as often as it is a paragraph — how the work splits,
+    what it assumes, what is still open — so the chip shows the line that
+    summarises it and says there is more. The whole of it is one click away in
+    the editor, and in the structure view it is printed as the card holds it.
+    """
+    value = str(row.get('value', '') or '')
+    lines = [line for line in value.strip().split('\n')]
+    head, more = lines[0].strip(), len(lines) > 1
+    return (
+        f'<button type="button" class="badge badge--outline" data-action="estimate-open"'
+        f'{attrs(project=project_id, estimate=row.get("id", ""), stage=row.get("stage", ""), note=row.get("note", ""))}'
+        f' data-value="{esc(value)}" data-date="{esc(row.get("date", ""))}"'
+        f'{f' title="{esc(value)}"' if more else ""}>'
+        f'<span class="chip-when">{esc(row.get("stage", ""))}</span>'
+        f'{esc(head)}{" …" if more else ""}'
+        f'{" — now" if in_force else ""}</button>'
+    )
 
 
 def _leaf(value, path):

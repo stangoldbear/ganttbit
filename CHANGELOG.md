@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## 1.4.0 - 2026-09-16
+
+### Added
+
+- **An estimate is as long as the answer was.** A project is sized in a
+  sentence as often as in a number — how the work splits, what it assumes,
+  what is still unknown — and the value now takes as many lines as you type,
+  in the simple form, in the panel and in the Estimates table of Advanced
+  edit. Nothing about the card format changed: a value holding newlines has
+  always been written as a fenced block, so the file stays a file you can read
+  and grep. The panel shows the line that summarises an estimate and says
+  there is more; the whole of it is one click away, and the structure view
+  prints it as the card holds it.
+- **The Advanced edit form reaches `intro`.** *Why & scope* — the markdown
+  block at the top of the panel — was editable by double-clicking it there and
+  from the simple form, but the one form that claims to hold every field of
+  the card did not show it. It has a section of its own now, above the notes,
+  and the two markdown blocks of a card sit together.
+
 ## 1.3.0 - 2026-09-16
 
 ### Fixed

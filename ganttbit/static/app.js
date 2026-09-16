@@ -1571,11 +1571,14 @@
 
     section.columns.forEach(function (column) {
       var cell = document.createElement('div');
-      cell.className = 'advedit-field';
+      // A column that holds more than a line takes the width of the row: 120px
+      // of a six-column grid is not where a breakdown gets typed.
+      var long = column.kind === 'long';
+      cell.className = long ? 'advedit-field advedit-field--wide' : 'advedit-field';
       var label = document.createElement('label');
       label.textContent = column.label;
-      var input = document.createElement('input');
-      input.type = 'text';
+      var input = document.createElement(long ? 'textarea' : 'input');
+      if (!long) input.type = 'text';
       input.className = 'form-input adv-row-input';
       input.dataset.col = column.key;
       input.value = (row && row[column.key] != null) ? String(row[column.key]) : '';
@@ -2153,8 +2156,9 @@
       saveTitle: 'Save this estimate?',
       deleteTitle: 'Delete this estimate?',
       fields: [
-        { key: 'value', label: 'Value', type: 'text', value: data.value || '',
-          placeholder: 'How big: 40d, 6w, 2 sprint, L' },
+        { key: 'value', label: 'Value', control: estimateValueBox(data.value || ''),
+          help: 'A number, or the breakdown behind it: the card holds as many ' +
+                'lines as you type.' },
         { key: 'stage', label: 'Stage', control: stageSelect(schema, data.stage || '') },
         { key: 'date', label: 'Given on', type: 'date', value: data.date || '' },
         { key: 'note', label: 'What moved it', type: 'text', value: data.note || '',
@@ -2176,6 +2180,16 @@
           .catch(function () { /* reported */ });
       } : null
     });
+  }
+
+  /* An estimate is often a number and often a paragraph — how the work splits,
+     what it assumes, what is still unknown. The card format fences a value that
+     holds newlines, so the box is simply allowed to. */
+  function estimateValueBox(current) {
+    var box = fieldControl({ param: 'value', kind: 'long' }, current);
+    box.placeholder = 'How big: 40d, 6w, 2 sprint, L — or the split behind it';
+    box.rows = 3;
+    return box;
   }
 
   /* The stages are the schema's, not this file's. */

@@ -886,6 +886,52 @@ class SchemaAndApiTest(VaultTestCase):
                  {'estimate_id': rows[0]['id']}, now=NOW)
         self.assertEqual(len(project_estimates(self.repo.load(self.PROJECT)[0])), len(rows) - 1)
 
+    def test_an_estimate_value_holds_as_many_lines_as_it_was_given(self):
+        """A number as often as a breakdown: the card fences what has newlines."""
+        split = 'BE 20d\nFE 15d\nQA 5d\n\nassumes the Menu API is frozen'
+        dispatch(self.repo, self.PROJECT, 'estimate/save',
+                 {'value': split, 'stage': 'detailed'}, now=NOW)
+
+        row = project_estimates(self.repo.load(self.PROJECT)[0])[-1]
+        self.assertEqual(row['value'], split)
+        # Through the file, not only through the dict it was written from.
+        raw = self.repo.read_raw(self.PROJECT)
+        self.assertIn('- value:', raw)
+        self.assertIn('      QA 5d', raw)
+        self.assertEqual(parse_card(raw)[0]['estimates'][-1]['value'], split)
+
+        # And the same value typed into the structure view, which addresses it
+        # by path and asks the schema what shape it is.
+        self.assertEqual(schema.entry_for(f'estimates.{row["id"]}.value')['kind'],
+                         schema.LONG)
+        dispatch(self.repo, self.PROJECT, 'set',
+                 {'path': f'estimates.{row["id"]}.value', 'value': split + '\nand a tail'},
+                 now=NOW)
+        self.assertEqual(project_estimates(self.repo.load(self.PROJECT)[0])[-1]['value'],
+                         split + '\nand a tail')
+
+    def test_the_panel_chip_shows_the_first_line_and_carries_the_whole_value(self):
+        split = 'BE 20d\nFE 15d\nQA 5d'
+        dispatch(self.repo, self.PROJECT, 'estimate/save',
+                 {'value': split, 'stage': 'detailed'}, now=NOW)
+        page = view.render_page(self.repo.list_all(), settings=self.settings)
+
+        self.assertIn('data-value="BE 20d\nFE 15d\nQA 5d"', page)
+        self.assertIn('>BE 20d …', page)       # the line, and that there is more
+        self.assertNotIn('>BE 20d\nFE 15d', page)   # never the whole of it in the chip
+
+    def test_the_advanced_form_reaches_the_intro(self):
+        """`- intro:` is the panel's Why block, and it is edited here too."""
+        paths = [entry['path'] for entry in schema.advanced_fields()]
+        self.assertIn('intro', paths)
+        self.assertEqual(schema.entry_for('intro')['kind'], schema.LONG)
+
+        dispatch(self.repo, self.PROJECT, 'advanced-update',
+                 {'name': 'Navigation menu', 'intro': '## Why\n\nTwo lines,\nrewritten here.'},
+                 now=NOW)
+        self.assertEqual(self.repo.load(self.PROJECT)[0]['intro'],
+                         '## Why\n\nTwo lines,\nrewritten here.')
+
     def test_an_estimate_is_refused_without_a_value_or_with_an_unknown_stage(self):
         for payload in ({'value': '  '},
                         {'value': '40d', 'stage': 'guesswork'},

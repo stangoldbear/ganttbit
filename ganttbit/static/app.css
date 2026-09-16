@@ -1216,6 +1216,9 @@ footer {
   border-bottom: 1px solid hsl(var(--border));
 }
 .advedit-row:last-child { border-bottom: none; }
+/* A column that holds more than a line: it already takes the width of the row,
+   and it needs the height to match. */
+.advedit-row textarea.adv-row-input { min-height: 62px; font-size: 12px; }
 .advedit-rows { display: flex; flex-direction: column; }
 .advedit-field--wide { grid-column: 1 / -1; }
 .advedit-checkbox {

@@ -46,8 +46,10 @@ def field(path, label, kind=TEXT, *, param=None, choices=None, readonly=False,
     }
 
 
-def _row(key, label, choices=None):
-    return {'key': key, 'label': label, 'choices': list(choices) if choices else None}
+def _row(key, label, choices=None, kind=TEXT):
+    """One column of a row table. `kind` is what the browser draws for it."""
+    return {'key': key, 'label': label, 'kind': kind,
+            'choices': list(choices) if choices else None}
 
 
 DEPENDENCY_COLUMNS = [
@@ -73,7 +75,7 @@ MILESTONE_COLUMNS = [
 ESTIMATE_COLUMNS = [
     _row('id', 'ID'),
     _row('stage', 'Stage', settings_module.ESTIMATE_STAGES),
-    _row('value', 'Value'),
+    _row('value', 'Value', kind=LONG),
     _row('date', 'Given on'),
     _row('note', 'What moved it'),
 ]
@@ -144,6 +146,11 @@ def sections(settings=None):
             field('confluence', 'Confluence links', LIST, help='Comma separated'),
             field('figma', 'Figma links', LIST, help='Comma separated'),
         ]},
+        {'key': 'intro', 'legend': 'Why & scope', 'fields': [
+            field('intro', 'Intro', LONG,
+                  help='Markdown, shown at the top of the panel. It is the '
+                       '`- intro:` key of the card, not the notes below.'),
+        ]},
         {'key': 'body', 'legend': 'Notes (markdown body)', 'fields': [
             field('_new_body', 'Notes', BODY, param='body'),
         ]},
@@ -166,7 +173,7 @@ def quick_fields():
         field('name', 'Project name', required=True),
         field('status', 'Status', choices=settings_module.STATUS_OPTIONS),
         field('blocked_reason', 'Blocking reason'),
-        field('intro', 'Intro'),
+        field('intro', 'Intro', LONG),
         field('dates.deadline_text', 'Deadline', param='deadline_text'),
         field('dates.deadline_type', 'Deadline type', param='deadline_type',
               choices=DEADLINE_TYPES),
@@ -210,8 +217,9 @@ def simple_fields(settings=None):
         # Not a value at a path: an answer here is a new estimate, and the
         # endpoint turns it into one. The `_` prefix is the card format's own
         # convention for a key that never reaches the file.
-        field('_new_estimate', 'Effort estimate', param='estimate',
-              help='Kept as history: a value that moved is added, the old ones stay.'),
+        field('_new_estimate', 'Effort estimate', LONG, param='estimate',
+              help='Kept as history: a value that moved is added, the old ones stay. '
+                   'A number, or the breakdown behind it.'),
         field('_new_estimate_stage', 'Estimate stage', param='estimate_stage',
               choices=settings_module.ESTIMATE_STAGES,
               help='Which conversation the number came out of.'),
@@ -242,7 +250,7 @@ def entry_for(path, settings=None):
         if parts[:len(prefix)] == prefix and len(parts) == len(prefix) + 2:
             for column in section['columns']:
                 if column['key'] == parts[-1]:
-                    return {'kind': TEXT, 'choices': column['choices'],
+                    return {'kind': column['kind'], 'choices': column['choices'],
                             'label': column['label'], 'readonly': False}
     return None
 
