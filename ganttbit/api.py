@@ -125,6 +125,19 @@ def _index_of(items, part, path):
     raise ApiError(f'No value at {path}.', status=404)
 
 
+def _row_id(kind, data, count, now):
+    """
+    The id of a new row on a card, unique within the card.
+
+    The project id goes into it with its dots flattened: the structure view
+    addresses a value by a dotted path, so a dot here would split the id in
+    two and leave the row unreachable — `todos.todo-p.x-1-…` is read as three
+    steps, not two, and answers 404.
+    """
+    owner = str(data.get('id', 'project')).replace('.', '-')
+    return f'{kind}-{owner}-{count}-{int(now.timestamp())}'
+
+
 def _add_todo(data, params, now):
     text = str(params.get('text', '')).strip()
     if not text:
@@ -132,7 +145,7 @@ def _add_todo(data, params, now):
 
     todos = csv_to_list(data.get('todos'))
     todo = {
-        'id': f"todo-{data.get('id', 'project')}-{len(todos) + 1}-{int(now.timestamp())}",
+        'id': _row_id('todo', data, len(todos) + 1, now),
         'text': text,
         'deadline': str(params.get('deadline', '')).strip(),
     }
@@ -222,7 +235,7 @@ def _save_milestone(data, params, now):
             return {'milestone': item}
 
     created = {
-        'id': f"milestone-{data.get('id', 'project')}-{len(milestones) + 1}-{int(now.timestamp())}",
+        'id': _row_id('milestone', data, len(milestones) + 1, now),
         'date': date,
         'text': text,
     }

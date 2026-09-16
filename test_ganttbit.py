@@ -883,6 +883,28 @@ class SchemaAndApiTest(VaultTestCase):
         with self.assertRaises(ApiError):
             dispatch(self.repo, self.PROJECT, 'todo/add', {'text': '   '}, now=NOW)
 
+    def test_a_project_id_with_a_dot_still_edits_its_rows_from_the_tree(self):
+        # The structure view addresses a value by a dotted path, and a row id
+        # carries the project id: a dot in it used to split the path in the
+        # wrong place and answer 404.
+        dispatch(self.repo, '_batch', 'create', {'name': 'Gateway', 'id': 'proj.4.2'}, now=NOW)
+        dispatch(self.repo, 'proj.4.2', 'todo/add', {'text': 'call the vendor'}, now=NOW)
+        dispatch(self.repo, 'proj.4.2', 'milestone/save',
+                 {'date': '2026-11-02', 'text': 'go live'}, now=NOW)
+        data, _ = self.repo.load('proj.4.2')
+        todo_id = data['todos'][-1]['id']
+        milestone_id = data['milestones'][-1]['id']
+        self.assertNotIn('.', todo_id)
+        self.assertNotIn('.', milestone_id)
+
+        dispatch(self.repo, 'proj.4.2', 'set',
+                 {'path': f'todos.{todo_id}.text', 'value': 'call them twice'}, now=NOW)
+        dispatch(self.repo, 'proj.4.2', 'set',
+                 {'path': f'milestones.{milestone_id}.text', 'value': 'go live, really'}, now=NOW)
+        data, _ = self.repo.load('proj.4.2')
+        self.assertEqual(data['todos'][-1]['text'], 'call them twice')
+        self.assertEqual(data['milestones'][-1]['text'], 'go live, really')
+
     def test_notes_are_reordered_and_never_lost(self):
         before = [item['id'] for item in self.repo.load(self.PROJECT)[0]['todos']]
         self.assertGreater(len(before), 1)
@@ -1434,6 +1456,23 @@ class GatedServerTest(VaultTestCase):
     def test_a_wrong_token_is_refused_in_url_and_cookie(self):
         self.assertEqual(self.fetch('/?k=nope', redirect=False)[0], 401)
         self.assertEqual(self.fetch('/', cookie=f'{_TOKEN_COOKIE}=nope')[0], 401)
+
+    def test_the_cookie_is_renewed_on_every_request(self):
+        status, _, headers = self.fetch('/', cookie=f'{_TOKEN_COOKIE}={self.TOKEN}')
+        self.assertEqual(status, 200)
+        self.assertIn(f'{_TOKEN_COOKIE}={self.TOKEN}', headers['Set-Cookie'])
+        self.assertIn('Max-Age=604800', headers['Set-Cookie'])
+        # An installed app can go days without loading a page: every response
+        # renews it, not only the ones that render something.
+        _, _, headers = self.fetch('/static/app.css', cookie=f'{_TOKEN_COOKIE}={self.TOKEN}')
+        self.assertIn('Max-Age=604800', headers['Set-Cookie'])
+
+    def test_a_refusal_hands_out_no_cookie(self):
+        for path, cookie in (('/', None), ('/', f'{_TOKEN_COOKIE}=nope'),
+                             ('/api/health', None)):
+            status, _, headers = self.fetch(path, cookie=cookie)
+            self.assertEqual(status, 401, path)
+            self.assertNotIn('Set-Cookie', headers, path)
 
     def test_api_refusals_speak_json(self):
         status, body, _ = self.fetch('/api/health')

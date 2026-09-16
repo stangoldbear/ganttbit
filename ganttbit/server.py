@@ -53,7 +53,7 @@ _TOKEN_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <h3 class="dialog__title">Access token required</h3>
 <p class="dialog__body">This dashboard is reachable from the network, so every request
 carries a shared secret. Open the link it was started with, or paste the token
-here. It is stored as a cookie for a week.</p>
+here. It is stored as a cookie, good for a week after your last visit.</p>
 <form class="dialog__fields" method="get" action="/">
   <label class="dialog__field"><span class="field-label">Token</span>
   <input class="form-input" type="password" name="k" autocomplete="current-password"
@@ -66,11 +66,25 @@ here. It is stored as a cookie for a week.</p>
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = f'GanttBit/{__version__}'
     repository = None            # injected by create_server
+    _renew_cookie = False        # this request came in on the cookie: reset its week
 
     # ─── Access control ──────────────────────────────────────────────────────
     # Only when the server is reachable from another machine: on loopback the
     # settings carry no token and every check below is a no-op.
+    def _token_cookie(self, token):
+        """The access cookie, good for a week from the moment it is sent."""
+        # Lax, not Strict: the link is opened from somewhere else, a chat,
+        # a mail or a note, and Strict withholds the cookie on a navigation
+        # that started off-site, which is the only way this link is ever
+        # used. Lax still refuses to travel with a cross-site POST/PUT/
+        # DELETE, and every mutation here is one of those.
+        flags = 'Path=/; HttpOnly; SameSite=Lax; Max-Age=604800'
+        if self.headers.get('X-Forwarded-Proto', '').lower() == 'https':
+            flags += '; Secure'
+        return f'{_TOKEN_COOKIE}={quote(token)}; {flags}'
+
     def _authorised(self):
+        self._renew_cookie = False
         token = self.repository.settings.token
         if not token:
             return True
@@ -82,23 +96,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # secret stops travelling in links, titles and the address bar.
             rest = {k: v for k, v in query.items() if k != _TOKEN_PARAM}
             target = path + ('?' + urlencode(rest) if rest else '')
-            # Lax, not Strict: the link is opened from somewhere else, a chat,
-            # a mail or a note, and Strict withholds the cookie on a navigation
-            # that started off-site, which is the only way this link is ever
-            # used. Lax still refuses to travel with a cross-site POST/PUT/
-            # DELETE, and every mutation here is one of those.
-            flags = 'Path=/; HttpOnly; SameSite=Lax; Max-Age=604800'
-            if self.headers.get('X-Forwarded-Proto', '').lower() == 'https':
-                flags += '; Secure'
             self._respond(302, b'', 'text/plain; charset=utf-8', extra_headers={
                 'Location': target,
-                'Set-Cookie': f'{_TOKEN_COOKIE}={quote(token)}; {flags}',
+                'Set-Cookie': self._token_cookie(token),
             })
             return False
 
         cookie = SimpleCookie(self.headers.get('Cookie', ''))
         morsel = cookie.get(_TOKEN_COOKIE)
         if morsel is not None and hmac.compare_digest(unquote(morsel.value), token):
+            # Sent again on the way out, so the week runs from the last visit
+            # rather than from the link. An installed app opens in a window
+            # with no address bar: a cookie that expires on a fixed day expires
+            # in front of somebody who has been using it daily.
+            self._renew_cookie = True
             return True
 
         self._refuse()
@@ -318,10 +329,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._respond(status, body.encode('utf-8'), 'text/html; charset=utf-8')
 
     def _respond(self, status, body, content_type, extra_headers=None):
+        headers = {**_SECURITY_HEADERS, **(extra_headers or {})}
+        if self._renew_cookie and 'Set-Cookie' not in headers:
+            headers['Set-Cookie'] = self._token_cookie(self.repository.settings.token)
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
-        for name, value in {**_SECURITY_HEADERS, **(extra_headers or {})}.items():
+        for name, value in headers.items():
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)

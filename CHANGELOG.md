@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## 1.2.1 - 2026-09-16
+
+### Fixed
+
+- A project whose id holds a `.` can have its notes and milestones edited from
+  the structure view again. The view addresses a value by a dotted path, and a
+  note or a milestone carries the project id inside its own id, so a dot in it
+  split the path in the wrong place and the row answered *not found*. New rows
+  no longer take the dot with them; rows written before this release keep the
+  id they were given, and are still reached from the panel and the markdown
+  tab.
+- The access cookie is renewed on every visit. It was set for a week when the
+  token link was opened and never extended, so a dashboard reachable from the
+  network locked itself out on the seventh day however much it had been used
+  in between — and an application installed to the home screen has no address
+  bar to open the link in again. The week now runs from the last request.
+
 ## 1.2.0 - 2026-09-16
 
 ### Fixed
