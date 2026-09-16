@@ -126,6 +126,12 @@ def is_display_group(key):
     return key in settings_module.DISPLAY_GROUPS
 
 
+def is_closed_group(key):
+    """Work that has stopped, rather than work that has not started yet."""
+    group = settings_module.DISPLAY_GROUPS.get(key)
+    return bool(group and group['closed'])
+
+
 def group_title(key, settings=None):
     group = settings_module.DISPLAY_GROUPS.get(key)
     return group['title'] if group else settings_module.LIVE_GROUP_TITLE
@@ -182,6 +188,45 @@ def resolve_person(who, settings=None):
     fallback = config.fallback_role
     return {'name': text or fallback['label'],
             'role': fallback['label'], 'color': fallback['color']}
+
+
+def project_estimates(project):
+    """The estimates a card holds, oldest first: the history, as it was given."""
+    return [row for row in (project.get('estimates') or []) if isinstance(row, dict)]
+
+
+def latest_estimate(project):
+    """
+    The estimate that stands, which is the last one given.
+
+    The list is the history and its last row is the number in force. There is
+    no flag saying which one is current, because a flag can disagree with the
+    list it is in — the same reason a note is open because it sits under
+    `todos` rather than because something says so.
+    """
+    rows = project_estimates(project)
+    return rows[-1] if rows else None
+
+
+def used_values(projects, path, declared=()):
+    """
+    Every value the cards already hold at `path`, the declared ones first.
+
+    The vocabulary of an open list. Platforms are tags rather than a closed
+    set: `settings.toml` names the ones an organisation started with, and the
+    vault grows the rest, so a tag typed once can be picked from a list the
+    next time instead of being typed again — or typed again differently.
+    """
+    known = [str(value).strip() for value in declared if str(value).strip()]
+    for project in projects:
+        cursor = project
+        for part in path.split('.'):
+            cursor = cursor.get(part) if isinstance(cursor, dict) else None
+        for item in (cursor if isinstance(cursor, list) else [cursor]):
+            text = '' if item is None else str(item).strip()
+            if text and text not in known:
+                known.append(text)
+    return known
 
 
 # ─── The timeline a card declares ────────────────────────────────────────────
@@ -302,6 +347,17 @@ def project_milestones(project, settings=None):
     return sorted(marks, key=lambda mark: mark['date'])
 
 
+def declared_span(project):
+    """
+    (start, end) the card states for itself under `timeline`, or None.
+
+    Apart from `project_span`, which answers what is drawn, this answers what
+    is written: the panel offers to set a span the card does not declare, and
+    those two are not the same question when the rows already imply one.
+    """
+    return _span(project.get('timeline') or {})
+
+
 def project_span(project, settings=None):
     """
     The bar drawn for the project itself.
@@ -309,7 +365,7 @@ def project_span(project, settings=None):
     The declared span wins and exists even with no tasks; a card that has not
     declared one yet still draws, derived from its rows.
     """
-    span = _span((project.get('timeline') or {}))
+    span = declared_span(project)
     if span:
         return span
     rows = project_tasks(project, settings)

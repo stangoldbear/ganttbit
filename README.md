@@ -71,24 +71,63 @@ or either edge to change where it starts or ends. Whole working days, applied
 to the dates the card holds, so a bar whose start is hidden by "show from
 today" still moves by exactly what you dragged.
 
+A new project has no bar to grab, because a card that says nothing about its
+dates is drawn with nothing: **Project span** in its panel is where the first
+one is written, and where an existing one is edited without aiming at it. A
+card that declares no span of its own but carries timeline rows already has a
+bar, derived from them, and the panel says so rather than claiming the card
+states it.
+
 A **milestone** is a dated mark on the project's own lane, drawn as the
 diamond this interface uses for nothing else. Click an empty day in a lane to
 propose one there, or add it from the panel; clicking the diamond opens the
 same overlay, with a delete that asks first. Hovering it tells you the date and
 what happens on it.
 
-A project is finished by dragging it into **DONE** at the bottom of the chart,
-abandoned by dragging it into **DROPPED**, and brought back by dragging it into
-the list above them, which is also what the status select in its panel does.
-Neither group appears in the aggregated action list, so finished work stops
-asking for attention. `priority` is the project's position in that one list, so
-the number in the card is the number on the screen.
+Three bands sit under the live list. A project nobody has started yet goes in
+**INACTIVE**, one that is finished in **DONE**, one that was abandoned in
+**DROPPED** — by dragging it onto the heading, or with the status select in its
+panel, and it comes back by being dragged into the list above them. DONE and
+DROPPED leave the aggregated action list, so finished work stops asking for
+attention; INACTIVE does not, because a project that has not started is not
+finished, and the note to chase its estimate is exactly the one worth keeping
+in sight. `priority` is the project's position over the whole chart, so the
+number in the card is the number on the screen.
 
 A note that belongs to no project yet goes in the **Inbox**, the first card of
 the aggregated list: write it there and it lands in `inbox.md`, a card like any
-other on disk, which the chart and the project count leave out. **New project**
-in the header asks for a name and nothing else, and comes back with the new
-card's panel open.
+other on disk, which the chart and the project count leave out.
+
+**New project** in the header asks, in one overlay, for what somebody has in
+their head when a project turns up: the name, whether it has started, the span
+the bar is drawn from, the deadline the chart badge shows, the platforms, the
+QA effort, the Jira request and the Confluence pages — those two usually exist
+before any analysis does — and why it exists, as markdown, so *Why* and *Scope*
+are headings if that is how you write them. The name is the only answer
+required, and every field left empty is left out of the card rather than
+written empty: created with a name alone, the card is the five lines it was
+before. It comes back with the new card's panel open.
+
+The same form edits a card that exists: the pencil on a chart row opens it on
+that project, and **Advanced edit** at its corner hands the card over to the
+full editor, which hands it back the same way. Two views of one card, never two
+sources for it, so the way over reloads from the file rather than carrying half
+a form with it.
+
+**Estimates are a history, not a number.** A project is sized more than once —
+roughly by the architects before it reaches anyone, refined in the preview
+meeting, then in detail with the squads, and again whenever an open point
+closes or a surprise lands — and the earlier numbers do not stop being true:
+they are what somebody was told. So the card keeps all of them, oldest first,
+and the last one is the one in force. Typing a value in the form adds one when
+it has moved and writes nothing when it has not; the panel lists them, and each
+one opens to be corrected, dated, or given a line on what moved it.
+
+**Platforms is an open vocabulary.** Clicking the field offers every tag the
+vault already uses — what `settings.toml` names, plus whatever has been typed
+since — and typing narrows the list to the tags that start with what you typed.
+A new one is still accepted, and offered the next time. The form is
+`schema.simple_fields`; adding a field to it is one line there.
 
 Every project carries a coloured band down its left edge, and the colour is its
 rank: full accent at the top of the list, fading to a near-grey at the bottom.
@@ -114,6 +153,15 @@ The chart still does, because a timeline is wide by nature, inside its own
 container. Two controls are hidden on touch because they need a pointing
 device: resizing the label column, and dragging rows to reorder them.
 
+It also installs. Behind a stable address — a named tunnel, a Tailscale
+address, a domain — the browser offers to add it to the home screen, and it
+opens in its own window with its own icon. A service worker caches the shell,
+so the page paints before the data arrives; `/api/` is never cached and never
+intercepted, because a chart drawn from a cache that then refuses to save is
+worse than a page that says it is not connected. A random per-run hostname is
+not worth installing: a PWA belongs to its origin, and tomorrow's tunnel is a
+different one.
+
 ## Two views over the vault
 
 The chart is one reading of the cards; **Hierarchy** is the other, and the
@@ -135,7 +183,9 @@ downloads as `vault-YYYY-MM.md`, which is the monthly snapshot.
 
 Everything an organisation changes lives in [`settings.toml`](settings.toml):
 squads and the people in them, roles, Jira/Confluence/Figma base URLs,
-wording, vault paths. Adding a team member or a project never requires touching
+wording, vault paths. A base URL only ever resolves a bare key
+(`NIMBUS-1042`); a whole address pasted into one of those fields is the link,
+left exactly as it was typed. Adding a team member or a project never requires touching
 Python. The priority band is not there: it is a per-browser preference, set in
 **Settings** beside the theme.
 
@@ -180,6 +230,12 @@ keys are preserved untouched, so you can keep your own fields in a card.
   - platforms
     - iOS
     - Android
+- estimates                          (the history; the last one is in force)
+  - estimate-1
+    - stage: raw                     (raw | preview | detailed)
+    - value: 40d                     (free text: 40d, 6w, 2 sprint, L)
+    - date: 2026-07-14
+    - note: before any analysis
 
 ## Notes
 

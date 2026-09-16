@@ -63,6 +63,21 @@
   - target_delivery: 2026-11-14
   - deadline_text: 2026-11-14
   - deadline_type: hard
+- estimates
+  - estimate-project-1-navigation-menu-1-1787000000
+    - stage: raw
+    - value: 40d
+    - date: 2026-07-14
+    - note: order of magnitude, before any analysis
+  - estimate-project-1-navigation-menu-2-1787600000
+    - stage: preview
+    - value: 55d
+    - date: 2026-07-28
+  - estimate-project-1-navigation-menu-3-1788100000
+    - stage: detailed
+    - value: 70d
+    - date: 2026-08-18
+    - note: the Menu API contract turned out to be two endpoints
 - tech_footprint
   - platforms
     - iOS

@@ -25,8 +25,9 @@ from ganttbit import (__version__, gantt, markup, schema,
                       settings as settings_module, view)
 from ganttbit.api import ApiError, delete_attachment, dispatch, upload_attachment
 from ganttbit.domain import (
-    Timeline, band_position, chart_spans, display_group, format_date_long,
-    format_relative, group_by_display, project_milestones, project_span,
+    Timeline, band_position, chart_spans, declared_span, display_group,
+    format_date_long, format_relative, group_by_display, is_closed_group,
+    latest_estimate, project_estimates, project_milestones, project_span,
     project_tasks, resolve_person, resolve_range,
 )
 from ganttbit.cardmd import build_card, parse_card
@@ -445,11 +446,12 @@ class RepositoryTest(VaultTestCase):
     def test_cards_are_ordered_by_display_group_then_priority(self):
         ids = [project['id'] for project in self.repo.list_all()]
         self.assertEqual(ids[0], 'project-1-navigation-menu')
-        # DONE and DROPPED are drawn under every tier, in that order
-        self.assertEqual(ids[-2:],
-                         ['project-10-delivery-estimate', 'project-12-accessibility-audit'])
-        # an unknown tier still sorts with the default one, above them
-        self.assertEqual(ids[-3], 'project-11-checkout-hardening')
+        # INACTIVE, then DONE and DROPPED, in that order under the live list
+        self.assertEqual(ids[-3:], ['project-4-analytics-migration',
+                                    'project-10-delivery-estimate',
+                                    'project-12-accessibility-audit'])
+        # an unknown status is still work in flight, above all three
+        self.assertIn('project-11-checkout-hardening', ids[:-3])
 
     def test_path_traversal_is_refused(self):
         path = self.repo.path_for('../../etc/passwd')
@@ -639,6 +641,26 @@ class DomainTest(unittest.TestCase):
         self.assertIsNotNone(project_span(card, self.settings))
         self.assertEqual(project_tasks(card, self.settings), [])
 
+    def test_what_a_card_declares_and_what_is_drawn_are_two_questions(self):
+        """The panel offers to write a span; the chart draws one either way."""
+        from_rows = {'id': 'x', 'timeline': {'tasks': [
+            {'id': 'task-1', 'who': 'Rita Levi', 'start': '2026-09-02',
+             'end': '2026-09-30'}]}}
+        self.assertIsNone(declared_span(from_rows))
+        self.assertIsNotNone(project_span(from_rows, self.settings))
+
+        stated = {'id': 'x', 'timeline': {'start': '2026-09-02', 'end': '2026-09-30'}}
+        self.assertEqual(declared_span(stated), project_span(stated, self.settings))
+        self.assertIsNone(declared_span({'id': 'x'}))
+
+    def test_the_estimate_in_force_is_the_last_one_given(self):
+        """No flag says which is current: a flag can disagree with the list."""
+        card = next(p for p in self.projects if p['id'] == 'project-1-navigation-menu')
+        self.assertEqual([row['value'] for row in project_estimates(card)],
+                         ['40d', '55d', '70d'])
+        self.assertEqual(latest_estimate(card)['stage'], 'detailed')
+        self.assertIsNone(latest_estimate({'id': 'x'}))
+
     def test_a_task_outside_its_project_span_is_flagged_not_dropped(self):
         card = {'id': 'x', 'timeline': {
             'start': '2026-09-02', 'end': '2026-09-30',
@@ -738,16 +760,24 @@ class DomainTest(unittest.TestCase):
         far = datetime(2030, 1, 1)
         self.assertIsNone(timeline.geometry(far, far))
 
-    def test_grouping_is_the_live_list_and_then_the_two_closing_groups(self):
+    def test_grouping_is_the_live_list_and_then_the_three_bands_below_it(self):
         grouped = group_by_display(
-            [{'status': 'active'}, {'status': 'on-hold'},
+            [{'status': 'active'}, {'status': 'on-hold'}, {'status': 'inactive'},
              {'status': 'done'}, {'status': 'dropped'}],
             self.settings)
-        self.assertEqual(list(grouped), ['live', 'done', 'dropped'])
+        self.assertEqual(list(grouped), ['live', 'inactive', 'done', 'dropped'])
         # An unrecognised status is still work in flight, not an archive.
         self.assertEqual(len(grouped['live']), 2)
+        self.assertEqual(len(grouped['inactive']), 1)
         self.assertEqual(len(grouped['done']), 1)
         self.assertEqual(len(grouped['dropped']), 1)
+
+    def test_only_work_that_stopped_is_a_closed_group(self):
+        """Not started is not finished: its notes stay on the action list."""
+        self.assertFalse(is_closed_group('live'))
+        self.assertFalse(is_closed_group('inactive'))
+        self.assertTrue(is_closed_group('done'))
+        self.assertTrue(is_closed_group('dropped'))
 
     def test_a_status_is_the_only_thing_that_files_a_project(self):
         self.assertEqual(display_group({'status': 'done'}, self.settings), 'done')
@@ -770,6 +800,103 @@ class SchemaAndApiTest(VaultTestCase):
         with self.assertRaises(ApiError):
             dispatch(self.repo, self.PROJECT, 'advanced-update',
                      {'risks_and_criticalities': [{'id': 'R', 'severity': 'apocalyptic'}]}, now=NOW)
+
+    def test_the_simple_form_edits_the_card_it_was_opened_on(self):
+        """The same declaration the form is drawn from, applied to a card."""
+        dispatch(self.repo, self.PROJECT, 'simple-update', {
+            'name': 'Navigation menu — third level', 'status': 'inactive',
+            'start': '2026-10-05', 'end': '2026-11-27',
+            'jira_request': 'NIMBUS-9', 'platforms': 'iOS, Watch',
+        }, now=NOW)
+        card, _ = self.repo.load(self.PROJECT)
+        self.assertEqual(card['name'], 'Navigation menu — third level')
+        self.assertEqual(card['status'], 'inactive')
+        self.assertEqual(card['timeline']['start'], '2026-10-05')
+        self.assertEqual(card['jira']['request'], 'NIMBUS-9')
+        self.assertEqual(card['tech_footprint']['platforms'], ['iOS', 'Watch'])
+        # The rows the form never shows are untouched by a save it was not part of.
+        self.assertTrue(card['timeline']['tasks'])
+        self.assertTrue(card['risks_and_criticalities'])
+
+    def test_the_simple_form_clears_what_it_was_shown_and_emptied(self):
+        """Unlike a creation, an empty answer here is an answer: the form showed it."""
+        dispatch(self.repo, self.PROJECT, 'simple-update',
+                 {'name': 'Navigation menu', 'deadline_text': '', 'start': '', 'end': ''},
+                 now=NOW)
+        card, _ = self.repo.load(self.PROJECT)
+        self.assertEqual(card['dates']['deadline_text'], '')
+        self.assertIsNone(declared_span(card))
+
+    def test_a_span_written_in_working_days_survives_a_simple_edit(self):
+        """Two ways of saying it is how they come to disagree."""
+        card, _ = self.repo.load('project-7-menu-endpoint')
+        self.assertEqual(card['timeline'], {'start': '2026-10-05', 'days': '20'})
+        drawn = declared_span(card)
+
+        # What the form opens on: the span the chart draws, not the empty `end`.
+        dispatch(self.repo, 'project-7-menu-endpoint', 'simple-update',
+                 {'name': card['name'], 'start': drawn[0].strftime('%Y-%m-%d'),
+                  'end': drawn[1].strftime('%Y-%m-%d')}, now=NOW)
+        after, _ = self.repo.load('project-7-menu-endpoint')
+        self.assertNotIn('days', after['timeline'])
+        self.assertEqual(declared_span(after), drawn)
+
+    def test_an_estimate_is_added_when_it_moves_and_not_when_it_does_not(self):
+        """Every number was true when it was given: none of them is overwritten."""
+        before = len(project_estimates(self.repo.load(self.PROJECT)[0]))
+
+        # Re-saving the form on the value it showed writes nothing.
+        dispatch(self.repo, self.PROJECT, 'simple-update',
+                 {'name': 'Navigation menu', 'estimate': '70d',
+                  'estimate_stage': 'detailed'}, now=NOW)
+        self.assertEqual(len(project_estimates(self.repo.load(self.PROJECT)[0])), before)
+
+        # A number that moved is a new row, dated the day it was given.
+        dispatch(self.repo, self.PROJECT, 'simple-update',
+                 {'name': 'Navigation menu', 'estimate': '85d',
+                  'estimate_stage': 'detailed'}, now=NOW)
+        rows = project_estimates(self.repo.load(self.PROJECT)[0])
+        self.assertEqual(len(rows), before + 1)
+        self.assertEqual(rows[-1]['value'], '85d')
+        self.assertEqual(rows[-1]['date'], NOW.strftime('%Y-%m-%d'))
+        self.assertEqual([row['value'] for row in rows][:3], ['40d', '55d', '70d'])
+
+        # The same number out of a later conversation is a new estimate too.
+        dispatch(self.repo, self.PROJECT, 'simple-update',
+                 {'name': 'Navigation menu', 'estimate': '85d',
+                  'estimate_stage': 'preview'}, now=NOW)
+        self.assertEqual(len(project_estimates(self.repo.load(self.PROJECT)[0])), before + 2)
+
+    def test_an_estimate_is_never_written_into_the_card_as_a_field(self):
+        """`_new_estimate` is an answer, not a value: it must not reach the file."""
+        dispatch(self.repo, self.PROJECT, 'simple-update',
+                 {'name': 'Navigation menu', 'estimate': '85d'}, now=NOW)
+        raw = self.repo.read_raw(self.PROJECT)
+        self.assertNotIn('_new_estimate', raw)
+        self.assertIn('value: 85d', raw)
+
+    def test_the_panel_corrects_and_removes_one_row_of_the_history(self):
+        rows = project_estimates(self.repo.load(self.PROJECT)[0])
+        dispatch(self.repo, self.PROJECT, 'estimate/save',
+                 {'estimate_id': rows[0]['id'], 'value': '45d', 'stage': 'raw',
+                  'date': '2026-07-14', 'note': 'typo'}, now=NOW)
+        self.assertEqual(project_estimates(self.repo.load(self.PROJECT)[0])[0]['value'], '45d')
+
+        dispatch(self.repo, self.PROJECT, 'estimate/delete',
+                 {'estimate_id': rows[0]['id']}, now=NOW)
+        self.assertEqual(len(project_estimates(self.repo.load(self.PROJECT)[0])), len(rows) - 1)
+
+    def test_an_estimate_is_refused_without_a_value_or_with_an_unknown_stage(self):
+        for payload in ({'value': '  '},
+                        {'value': '40d', 'stage': 'guesswork'},
+                        {'value': '40d', 'date': 'soon'}):
+            with self.assertRaises(ApiError):
+                dispatch(self.repo, self.PROJECT, 'estimate/save', payload, now=NOW)
+
+    def test_the_simple_form_refuses_half_a_span(self):
+        with self.assertRaises(ApiError):
+            dispatch(self.repo, self.PROJECT, 'simple-update',
+                     {'name': 'x', 'start': '2026-10-05'}, now=NOW)
 
     def test_quick_update_writes_only_the_fields_it_owns(self):
         before, _ = self.repo.load(self.PROJECT)
@@ -803,6 +930,7 @@ class SchemaAndApiTest(VaultTestCase):
     def test_an_empty_name_is_refused_by_every_path_that_can_write_one(self):
         """The name is the `# title` line: written empty, the file stops being a card."""
         for action, payload in (('update', {'name': ''}),
+                                ('simple-update', {'name': ''}),
                                 ('advanced-update', {'name': '   '}),
                                 ('set', {'path': 'name', 'value': ''})):
             with self.assertRaises(ApiError) as caught:
@@ -891,19 +1019,27 @@ class SchemaAndApiTest(VaultTestCase):
         dispatch(self.repo, 'proj.4.2', 'todo/add', {'text': 'call the vendor'}, now=NOW)
         dispatch(self.repo, 'proj.4.2', 'milestone/save',
                  {'date': '2026-11-02', 'text': 'go live'}, now=NOW)
+        dispatch(self.repo, 'proj.4.2', 'estimate/save',
+                 {'value': '40d', 'stage': 'raw'}, now=NOW)
         data, _ = self.repo.load('proj.4.2')
         todo_id = data['todos'][-1]['id']
         milestone_id = data['milestones'][-1]['id']
-        self.assertNotIn('.', todo_id)
-        self.assertNotIn('.', milestone_id)
+        estimate_id = data['estimates'][-1]['id']
+        # Every generated row id, not only the one a bug report named: each is
+        # a step of a dotted path, and a new kind of row is a new way to break.
+        for row_id in (todo_id, milestone_id, estimate_id):
+            self.assertNotIn('.', row_id)
 
         dispatch(self.repo, 'proj.4.2', 'set',
                  {'path': f'todos.{todo_id}.text', 'value': 'call them twice'}, now=NOW)
         dispatch(self.repo, 'proj.4.2', 'set',
                  {'path': f'milestones.{milestone_id}.text', 'value': 'go live, really'}, now=NOW)
+        dispatch(self.repo, 'proj.4.2', 'set',
+                 {'path': f'estimates.{estimate_id}.value', 'value': '45d'}, now=NOW)
         data, _ = self.repo.load('proj.4.2')
         self.assertEqual(data['todos'][-1]['text'], 'call them twice')
         self.assertEqual(data['milestones'][-1]['text'], 'go live, really')
+        self.assertEqual(data['estimates'][-1]['value'], '45d')
 
     def test_notes_are_reordered_and_never_lost(self):
         before = [item['id'] for item in self.repo.load(self.PROJECT)[0]['todos']]
@@ -1049,9 +1185,65 @@ class CreateProjectTest(VaultTestCase):
         self.assertEqual(data['name'], 'Résumé builder — v2')
         self.assertEqual(data['status'], 'active')
         self.assertEqual(body, '')
-        live = [p for p in self.repo.list_all() if p['status'] not in ('done', 'dropped')]
+        live = [p for p in self.repo.list_all()
+                if display_group(p, self.settings) == 'live']
         self.assertEqual(live[-1]['id'], 'resume-builder-v2')
-        self.assertEqual(data['priority'], str(len(live)))
+        # One past the last rank in flight, whatever the numbering skipped.
+        behind = max(p['_prio_num'] for p in live if p['id'] != 'resume-builder-v2')
+        self.assertEqual(data['priority'], str(behind + 1))
+
+    def test_a_card_is_created_with_what_the_form_asked_for(self):
+        dispatch(self.repo, '_batch', 'create', {
+            'name': 'Watch app companion',
+            'start': '2026-10-05', 'end': '2026-11-27',
+            'deadline_text': 'mid November', 'deadline_type': 'hard',
+            'platforms': 'iOS, Android', 'qa_effort': 'medium',
+            'intro': '## Why\nThe last surface without it.',
+        }, now=NOW)
+        card, _ = self.repo.load('watch-app-companion')
+        self.assertEqual(card['timeline'], {'start': '2026-10-05', 'end': '2026-11-27'})
+        self.assertEqual(card['dates'],
+                         {'deadline_text': 'mid November', 'deadline_type': 'hard'})
+        self.assertEqual(card['tech_footprint'],
+                         {'platforms': ['iOS', 'Android'], 'qa_effort': 'medium'})
+        self.assertIn('## Why', card['intro'])
+        self.assertIsNotNone(project_span(card, self.settings))
+
+    def test_a_field_left_empty_is_not_written_at_all(self):
+        """A creation has nothing to clear: an empty answer is no answer."""
+        dispatch(self.repo, '_batch', 'create',
+                 {'name': 'Bare one', 'deadline_text': '', 'intro': '   ',
+                  'start': '', 'end': ''}, now=NOW)
+        card, _ = self.repo.load('bare-one')
+        self.assertEqual(set(card), {'id', 'name', 'type', 'priority', 'status'})
+
+    def test_creation_answers_to_the_same_rules_as_every_other_write(self):
+        for payload, why in (
+            ({'name': 'Half a span', 'start': '2026-10-05'}, 'one date is not a span'),
+            ({'name': 'Backwards', 'start': '2026-11-27', 'end': '2026-10-05'}, 'ends first'),
+            ({'name': 'Not a date', 'start': 'soon', 'end': 'later'}, 'not YYYY-MM-DD'),
+            ({'name': 'Bad type', 'deadline_type': 'medium'}, 'not a deadline type'),
+            ({'name': 'Bad effort', 'qa_effort': 'enormous'}, 'not a QA effort'),
+        ):
+            with self.assertRaises(ApiError, msg=why):
+                dispatch(self.repo, '_batch', 'create', payload, now=NOW)
+        self.assertFalse(self.repo.exists('half-a-span'))
+
+    def test_a_tag_typed_once_is_offered_the_next_time(self):
+        """An open vocabulary: settings names some, the vault grows the rest."""
+        offered = lambda: next(
+            entry['suggest'] for entry in
+            schema.as_json(self.settings, self.repo.list_all())['simple']
+            if entry['param'] == 'platforms')
+        self.assertNotIn('Watch', offered())
+
+        dispatch(self.repo, '_batch', 'create',
+                 {'name': 'Watch app', 'platforms': 'iOS, Watch'}, now=NOW)
+        self.assertIn('Watch', offered())
+        # The configured ones stay first, and nothing is offered twice.
+        self.assertEqual(offered()[:len(self.settings.platforms)],
+                         list(self.settings.platforms))
+        self.assertEqual(len(offered()), len(set(offered())))
 
     def test_an_explicit_id_wins_over_the_slug(self):
         dispatch(self.repo, '_batch', 'create', {'name': 'Watch app', 'id': 'proj-42'}, now=NOW)
@@ -1064,6 +1256,26 @@ class CreateProjectTest(VaultTestCase):
         for payload in ({'name': ''}, {'name': '   '}, {'name': 'X', 'id': '../escape'}):
             with self.assertRaises(ApiError):
                 dispatch(self.repo, '_batch', 'create', payload, now=NOW)
+
+    def test_a_new_card_gets_its_bar_from_the_panel(self):
+        """The chart can only move a bar that exists; this is where one starts."""
+        dispatch(self.repo, '_batch', 'create', {'name': 'Watch app'}, now=NOW)
+        card, _ = self.repo.load('watch-app')
+        self.assertNotIn('timeline', card)
+        self.assertIsNone(project_span(card, self.settings))
+
+        panel = view.render_detail_row(card, 'live', settings=self.settings)
+        self.assertIn('data-action="span-open" data-project="watch-app" '
+                      'data-start="" data-end=""', panel)
+
+        # What that button sends: the endpoint a drag already uses, with no row
+        # of its own, so the card's own span is what it writes.
+        dispatch(self.repo, 'watch-app', 'timeline/save',
+                 {'task_id': '', 'start': '2026-10-05', 'end': '2026-11-27'}, now=NOW)
+        card, _ = self.repo.load('watch-app')
+        self.assertEqual((card['timeline']['start'], card['timeline']['end']),
+                         ('2026-10-05', '2026-11-27'))
+        self.assertIsNotNone(project_span(card, self.settings))
 
     def test_the_inbox_id_is_reserved(self):
         with self.assertRaises(ApiError):
@@ -1170,6 +1382,18 @@ class StructureViewTest(VaultTestCase):
 
 
 class GlobalTodosTest(VaultTestCase):
+    def test_work_not_started_keeps_its_notes_on_the_list_and_finished_work_does_not(self):
+        """Inactive is a band of its own, but it is not an archive."""
+        for project_id, text in (('project-4-analytics-migration', 'Chase the raw estimate'),
+                                 ('project-10-delivery-estimate', 'Finished business')):
+            dispatch(self.repo, project_id, 'todo/add', {'text': text}, now=NOW)
+
+        inbox, projects = view.split_inbox(self.repo.list_all())
+        cards, _active, _done = view.render_global_todos(
+            projects, settings=self.settings, inbox=inbox)
+        self.assertIn('Chase the raw estimate', cards)
+        self.assertNotIn('Finished business', cards)
+
     def test_a_card_in_actions_and_notes_opens_its_project(self):
         page = view.render_page(self.repo.list_all(), today=TODAY, settings=self.settings)
         self.assertIn('data-action="go-project" data-project="project-1-navigation-menu"', page)
@@ -1243,14 +1467,14 @@ class ViewTest(unittest.TestCase):
         self.projects = self.repo.list_all()
         self.html = view.render_page(self.projects, today=TODAY, settings=self.settings)
 
-    def test_the_page_ranks_every_project_and_names_the_two_closing_groups(self):
+    def test_the_page_ranks_every_project_and_names_the_bands_under_the_list(self):
         for project in self.projects:
             self.assertIn(f'data-proj-id="{project["id"]}"', self.html)
-        # No heading over the live list — it is the chart — and one over each of
-        # the two groups a project is dropped onto to close it.
+        # No heading over the live list — it is the chart — and one over each
+        # band a project is dropped into, in the order they are drawn.
         self.assertNotIn('data-group="live"', self.html)
-        self.assertIn('data-group="done"', self.html)
-        self.assertIn('data-group="dropped"', self.html)
+        headings = re.findall(r'class="group-row" data-group="([a-z]+)"', self.html)
+        self.assertEqual(headings, ['inactive', 'done', 'dropped'])
 
     def test_the_ramp_runs_from_the_top_of_the_list_to_the_bottom(self):
         positions = re.findall(r'project-main-row[^>]*--at:([\d.]+)%', self.html)
@@ -1269,6 +1493,40 @@ class ViewTest(unittest.TestCase):
         detail = view.render_detail_row(card, 'live', settings=self.settings)
         self.assertIn('Confluence (<span data-count="confluence_links">0</span>)', detail)
         self.assertIn('Epics (<span data-count="jira_epics">1</span>)', detail)
+
+    def test_an_address_in_a_card_is_never_prefixed_with_the_base_url(self):
+        """A pasted `https://…` arrived as `https://jira.example.com/browse/https://…`."""
+        base = self.settings.jira_base_url
+        card = {'id': 'x', 'jira': {
+            'request': 'https://acme.atlassian.test/browse/ABC-7',
+            'epics': ['NIMBUS-1043', 'https://acme.atlassian.test/browse/ABC-8']}}
+        detail = view.render_detail_row(card, 'live', settings=self.settings)
+        self.assertIn('href="https://acme.atlassian.test/browse/ABC-7"', detail)
+        self.assertIn('href="https://acme.atlassian.test/browse/ABC-8"', detail)
+        self.assertIn(f'href="{base}NIMBUS-1043"', detail)     # a key still resolves
+        self.assertNotIn(f'{base}https://', detail)
+
+    def test_the_panel_says_whether_the_span_is_written_or_only_drawn(self):
+        """A new card has no bar to grab in the chart, so the panel offers one."""
+        blank = view.render_detail_row({'id': 'x'}, 'live', settings=self.settings)
+        self.assertIn('Project span', blank)
+        self.assertIn('data-action="span-open" data-project="x" '
+                      'data-start="" data-end=""', blank)
+
+        # A card with rows already draws a bar; the panel opens on those dates
+        # rather than claiming the card states them.
+        from_rows = view.render_detail_row(
+            {'id': 'x', 'timeline': {'tasks': [
+                {'id': 'task-1', 'who': 'Rita Levi', 'start': '2026-09-02',
+                 'end': '2026-09-30'}]}}, 'live', settings=self.settings)
+        self.assertIn('Derived from the rows', from_rows)
+        self.assertIn('data-start="2026-09-02" data-end="2026-09-30"', from_rows)
+
+        stated = view.render_detail_row(
+            {'id': 'x', 'timeline': {'start': '2026-09-02', 'end': '2026-09-30'}},
+            'live', settings=self.settings)
+        self.assertNotIn('Derived from the rows', stated)
+        self.assertIn('2 September 26 → 30 September 26', stated)
 
     def test_unknown_status_is_not_silently_replaced(self):
         card = next(p for p in self.projects if p['id'] == 'project-11-checkout-hardening')
@@ -1358,6 +1616,13 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(markup.safe_url('https://x.test'), 'https://x.test')
         # A browser drops the control character and reads the scheme behind it.
         self.assertEqual(markup.safe_url('\x01javascript:alert(1)'), '')
+
+        base = 'https://jira.test/browse/'
+        self.assertEqual(markup.join_url(base, 'ABC-7'), base + 'ABC-7')
+        self.assertEqual(markup.join_url(base, ' https://other.test/x '),
+                         'https://other.test/x')
+        self.assertEqual(markup.join_url('', 'https://other.test/x'),
+                         'https://other.test/x')
 
 
 class TokenTest(VaultTestCase):
@@ -1533,6 +1798,13 @@ class ServerTest(VaultTestCase):
         payload = json.loads(self.get('/api/schema')[1])
         self.assertTrue(payload['success'])
         self.assertEqual([section['key'] for section in payload['sections']][0], 'general')
+        # The simple form is rendered from the same document, and the open
+        # vocabularies travel with it.
+        self.assertEqual([entry['param'] for entry in payload['simple']][:3],
+                         ['name', 'status', 'start'])
+        platforms = next(entry for entry in payload['simple']
+                         if entry['param'] == 'platforms')
+        self.assertIn('iOS', platforms['suggest'])
 
     def test_raw_endpoint_returns_data_body_and_text(self):
         payload = json.loads(self.get('/api/project/project-1-navigation-menu/raw')[1])

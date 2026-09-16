@@ -38,15 +38,23 @@ STATUS_STYLES = {
 STATUS_FALLBACK = {'bg': '#f5f5f5', 'fg': '#555555'}
 STATUS_OPTIONS = list(STATUS_STYLES)
 
-# The live list has no heading of its own: it is simply the chart. The two
-# groups below it are drawn under one each, and a project lands in one because
-# of its status alone. Dropping a project onto a heading is what sets it.
+# The live list has no heading of its own: it is simply the chart. The groups
+# below it are drawn under one each, in this order, and a project lands in one
+# because of its status alone. Dropping a project onto a heading is what sets
+# it.
+#
+# `closed` is the difference between work that has stopped and work that has
+# not started: a done or dropped project should stop asking for attention, so
+# its notes leave the aggregated action list. An inactive one is still ahead of
+# you — the note to chase an estimate is exactly what you want to keep seeing —
+# so it is a band of its own in the chart and still on the list.
 LIVE_GROUP = 'live'
 LIVE_GROUP_TITLE = 'IN FLIGHT'
-DONE_GROUP, DROPPED_GROUP = 'done', 'dropped'
+INACTIVE_GROUP, DONE_GROUP, DROPPED_GROUP = 'inactive', 'done', 'dropped'
 DISPLAY_GROUPS = {
-    DONE_GROUP:    {'title': 'DONE', 'rgb': (0, 105, 92)},
-    DROPPED_GROUP: {'title': 'DROPPED', 'rgb': (107, 114, 128)},
+    INACTIVE_GROUP: {'title': 'INACTIVE', 'rgb': (84, 110, 122), 'closed': False},
+    DONE_GROUP:     {'title': 'DONE', 'rgb': (0, 105, 92), 'closed': True},
+    DROPPED_GROUP:  {'title': 'DROPPED', 'rgb': (107, 114, 128), 'closed': True},
 }
 
 # One reserved card for the notes that belong to no project yet. On disk it is
@@ -71,6 +79,15 @@ INLINE_ATTACHMENT_TYPES = frozenset({
     'text/plain', 'text/markdown',
 })
 QA_EFFORT_OPTIONS = ['low', 'medium', 'high']
+
+# A project is estimated more than once, and the earlier numbers do not stop
+# being true: roughly by the architects before it reaches anyone, refined in
+# the preview meeting, then in detail with the squads — and again whenever an
+# open point closes or a surprise lands. The stage says which conversation a
+# number came out of; the same stage happens twice often enough (two raw
+# passes, three detailed ones) that the position in the list is what numbers
+# them, not the word.
+ESTIMATE_STAGES = ['raw', 'preview', 'detailed']
 
 # Gantt layout metrics. Emitted as CSS custom properties by the view so that
 # stylesheet and script never restate them (single source of truth).

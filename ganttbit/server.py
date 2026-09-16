@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import quote, unquote, urlencode
 
 from . import __version__, schema, settings as settings_module, view
+from .domain import declared_span, latest_estimate
 from .api import ApiError, delete_attachment, dispatch, upload_attachment
 from .repository import ProjectRepository
 
@@ -141,7 +142,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == '/api/health':
             return self._send_json({'success': True, 'status': 'ok'})
         if path == '/api/schema':
-            return self._send_json({'success': True, **schema.as_json()})
+            # The vault travels with the declaration: an open vocabulary is
+            # completed with the values the cards already use.
+            return self._send_json({'success': True, **schema.as_json(
+                self.repository.settings, self.repository.list_all())})
 
         raw_match = re.match(r'^/api/project/([^/]+)/raw$', path)
         if raw_match:
@@ -233,10 +237,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
         data, body = self.repository.load(project_id)
         if data is None:
             return self._send_json({'success': False, 'error': 'Project not found'}, 404)
+        # Two answers the simple form asks for are not plain values in the card,
+        # so they are resolved here rather than guessed at in the browser: a bar
+        # may be written as a start and a count of working days, and the
+        # estimate in force is the last of a list.
+        span = declared_span(data)
         return self._send_json({
             'success': True,
             'data': data,
             'body': body,
+            'span': {'start': span[0].strftime('%Y-%m-%d'),
+                     'end': span[1].strftime('%Y-%m-%d')} if span else None,
+            'estimate': latest_estimate(data),
             'raw_text': self.repository.read_raw(project_id),
         })
 
@@ -314,8 +326,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         with open(target, 'rb') as handle:
             body = handle.read()
 
-        self._respond(200, body, content_type,
-                      extra_headers={'Cache-Control': 'no-cache'})
+        headers = {'Cache-Control': 'no-cache'}
+        # A worker served from /static/ may only control /static/ unless the
+        # response says otherwise, and the shell it caches is the whole site.
+        if relative_path == 'sw.js':
+            headers['Service-Worker-Allowed'] = '/'
+        self._respond(200, body, content_type, extra_headers=headers)
 
     def _send_html(self, markup):
         self._respond(200, markup.encode('utf-8'), 'text/html; charset=utf-8')

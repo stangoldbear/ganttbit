@@ -4,6 +4,89 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## 1.3.0 - 2026-09-16
+
+### Fixed
+
+- A project whose bar is declared as a start and a count of working days
+  (`timeline.days`, with no end date) is no longer unsavable from a form with
+  two dates: the form opens on the day that count lands on, and saving settles
+  the card on the two dates, dropping `days` the way a dragged bar already
+  does. Two ways of saying it is how they come to disagree.
+- A link field holding a whole address is no longer prefixed with the base
+  URL. `jira_base_url` exists to resolve a bare key (`NIMBUS-1042`); pasting
+  `https://…/browse/ABC-7` into the Jira request or an epic used to produce
+  `https://jira.example.com/browse/https://…`, a link that could not open.
+  A value that already names a scheme is now its own target, in the page the
+  server renders and in the chip the browser patches in after a save.
+- Leaving a dialog with text in it asks before losing it, wherever the dialog
+  is. *Ask before discarding* covered the editors that open in the page; the
+  overlays did not ask at all, which cost a name when the only one of them was
+  *Rename* and costs most of a card now that the form below is one of them.
+  Cancel, Escape, a click outside and the step across to Advanced edit all ask
+  the same question, and a form nobody has typed in still closes without one.
+
+### Added
+
+- **It installs.** Behind a stable address — a named tunnel, a Tailscale
+  address, a domain — the browser offers to put GanttBit on the home screen,
+  and it opens in its own window with its own icon. A service worker caches
+  the shell so the page paints before the data arrives; `/api/` is never
+  cached and never intercepted, because a chart drawn from a cache that then
+  refuses to save is worse than a page that says it is not connected, and a
+  navigation that cannot reach the server gets a plain page saying so. The
+  access cookie now renews on every request (1.2.1), which is what a window
+  with no address bar needs. A hostname that changes every run is not worth
+  installing: an installed app belongs to its origin.
+
+- **Estimates** are a history on the card. A project is sized more than once —
+  roughly by the architects before it reaches anyone, refined in the preview
+  meeting, then in detail with the squads, and again when an open point closes
+  or a surprise lands — and the earlier numbers do not stop being true. So
+  `estimates` is a list, oldest first, each row carrying the stage it came out
+  of (`raw`, `preview`, `detailed`), the value as free text (`40d`, `6w`, `2
+  sprint`, `L`), the day it was given and what moved it. Nothing marks the
+  current one: the last row is, the way a note is open because it sits under
+  `todos`. The simple form asks for the value and adds one when it has moved,
+  writing nothing when it has not; the panel lists them all and opens each to
+  be corrected or removed; the Advanced editor gets the table for free.
+- **Edit** on a chart row opens the simple form on that project: the same
+  overlay *New project* uses, filled in from the card. **Advanced edit** at
+  its corner hands the card to the full editor, and **Simple edit** in that
+  editor's header hands it back — two views of one card, so the way over
+  reloads from the file rather than carrying half a form with it. Saving from
+  the simple form clears what it showed and you emptied, which is the
+  difference between editing a card and creating one.
+- The simple form also asks for the **status**, the **Jira request** and the
+  **Confluence pages**: a project often turns up with a ticket and a page
+  before it has an analysis, or a start date, or anyone on it.
+- **Platforms is an open vocabulary.** Clicking the field offers every tag the
+  vault already uses — what `settings.toml` names, plus whatever has been typed
+  since — and typing narrows it to the tags starting with what you typed.
+  Arrow keys walk the list, Enter takes one, and a new tag is still accepted
+  and offered the next time. The values travel with the schema, so the form
+  never restates them.
+- **INACTIVE** is a band of its own under the live list, above DONE and
+  DROPPED: a project nobody has started yet is not in flight, and it is not
+  finished either. Unlike the two below it, its notes stay on the aggregated
+  action list — the note to chase an estimate is exactly the one worth seeing
+  before the work begins.
+- **New project** asks for a project, not for a name. One overlay carries what
+  somebody has in their head when they start one: the name, the span the bar is
+  drawn from, the deadline badge, the platforms, the QA effort, and why it
+  exists, as markdown. Only the name is required, and a field left empty is
+  left out of the card rather than written empty, so a card created from the
+  name alone is the same five lines it has always been. The form is not written
+  in the script: it is `schema.creation_fields`, served with the schema and
+  drawn by the renderer the Advanced Edit form already uses, so adding a field
+  to it is one line in `schema.py`.
+- **Project span** in the project panel: the dates of the project's own bar,
+  set and edited from the interface. A new card declares no span, so there
+  was no bar in the chart to grab and no way to draw the first one short of
+  the Advanced editor. A card that carries timeline rows but declares no span
+  of its own is shown the bar those rows derive, named as derived, and the
+  dialog opens on it.
+
 ## 1.2.1 - 2026-09-16
 
 ### Fixed

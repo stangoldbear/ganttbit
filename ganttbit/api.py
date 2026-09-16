@@ -35,6 +35,24 @@ def _update_project(data, params, _now):
         return {'html': {'intro': render_markdown(data.get('intro'))}}
 
 
+def _simple_update_project(data, params, now):
+    """
+    Simple edit: the fields the simple form asks for, on a card that exists.
+
+    The same declaration the form is drawn from, applied the same way an
+    update from the panel is applied. Unlike a creation, an empty answer is an
+    answer: it clears the field, because the form showed what was there.
+    """
+    _check_optional_span(params)
+    schema.apply_fields(data, params, schema.simple_fields())
+    # The form's two dates are the whole truth about the bar. `days` is the
+    # other way of saying it, and keeping both is how they come to disagree —
+    # the same rule a dragged bar already follows.
+    if 'start' in params or 'end' in params:
+        ensure_dict(data, 'timeline').pop('days', None)
+    _record_estimate(data, now)
+
+
 def _advanced_update_project(data, params, _now):
     """
     Advanced edit: every field of the card schema.
@@ -244,14 +262,13 @@ def _save_milestone(data, params, now):
     return {'milestone': created}
 
 
-def _save_timeline(data, params, now):
+def _checked_span(params):
     """
-    Write one bar: a row when `task_id` is given, the project span otherwise.
+    The two dates of a bar, refused unless the card can hold them.
 
-    The same endpoint serves a drag, which sends two dates, and the row dialog,
-    which also sends who it belongs to and its note. Both dates are checked
-    here: a drag that ends outside the scale, or a date typed by hand, must not
-    be able to write something the card cannot represent.
+    One rule, wherever a bar is written: a drag that ends outside the scale, a
+    date typed into the span dialog, and the dates a project is created with
+    are all checked here rather than stored and skipped at render time.
     """
     start = str(params.get('start', '')).strip()
     end = str(params.get('end', '')).strip()
@@ -259,6 +276,23 @@ def _save_timeline(data, params, now):
         raise ApiError('A bar needs a start and an end, as YYYY-MM-DD.')
     if end < start:
         raise ApiError('A bar cannot end before it starts.')
+    return start, end
+
+
+def _check_optional_span(params):
+    """A span is two dates or none: half of one would draw a one-day project."""
+    if str(params.get('start', '')).strip() or str(params.get('end', '')).strip():
+        _checked_span(params)
+
+
+def _save_timeline(data, params, now):
+    """
+    Write one bar: a row when `task_id` is given, the project span otherwise.
+
+    The same endpoint serves a drag, which sends two dates, and the row dialog,
+    which also sends who it belongs to and its note.
+    """
+    start, end = _checked_span(params)
 
     timeline = ensure_dict(data, 'timeline')
     task_id = str(params.get('task_id', '') or '').strip()
@@ -312,6 +346,81 @@ def _delete_timeline_task(data, params, _now):
     timeline = ensure_dict(data, 'timeline')
     timeline['tasks'] = [entry for entry in csv_to_list(timeline.get('tasks'))
                          if not (isinstance(entry, dict) and entry.get('id') == task_id)]
+
+
+# ─── Estimates ───────────────────────────────────────────────────────────────
+# A number given for a project is never a correction of the last one: it came
+# out of a later conversation, with more known, and the one before it was true
+# when it was given. So the card keeps all of them, oldest first, and the last
+# row is the one in force. What the simple form asks for is therefore an event
+# rather than a value, and this is where it becomes a row.
+def _record_estimate(data, now):
+    """
+    Turn what the simple form typed into an estimate, if it moved.
+
+    Re-opening the form and saving it writes nothing: the value it showed is
+    the one already on the card. A value or a stage that differs is a new
+    estimate, dated today, keeping the ones before it.
+    """
+    value = str(data.pop('_new_estimate', '') or '').strip()
+    stage = str(data.pop('_new_estimate_stage', '') or '').strip()
+    if not value:
+        return
+
+    estimates = csv_to_list(data.get('estimates'))
+    last = estimates[-1] if estimates and isinstance(estimates[-1], dict) else {}
+    if str(last.get('value', '')).strip() == value and str(last.get('stage', '')).strip() == stage:
+        return
+
+    estimates.append({
+        'id': _row_id('estimate', data, len(estimates) + 1, now),
+        'stage': stage or settings_module.ESTIMATE_STAGES[0],
+        'value': value,
+        'date': now.strftime('%Y-%m-%d'),
+    })
+    data['estimates'] = estimates
+
+
+def _save_estimate(data, params, now):
+    """Add or correct one row of the history, from the panel."""
+    value = str(params.get('value', '')).strip()
+    if not value:
+        raise ApiError('An estimate needs a value.')
+    stage = str(params.get('stage', '')).strip() or settings_module.ESTIMATE_STAGES[0]
+    if stage not in settings_module.ESTIMATE_STAGES:
+        raise ApiError(f'Unknown estimate stage: {stage}. '
+                       f'Allowed: {", ".join(settings_module.ESTIMATE_STAGES)}.')
+    date = str(params.get('date', '')).strip()
+    if date and not _DATE_RE.match(date):
+        raise ApiError('An estimate is dated YYYY-MM-DD, or not at all.')
+
+    estimates = csv_to_list(data.get('estimates'))
+    estimate_id = str(params.get('estimate_id', '') or '').strip()
+    note = str(params.get('note', '')).strip()
+
+    for row in estimates:
+        if isinstance(row, dict) and row.get('id') == estimate_id:
+            row.update({'stage': stage, 'value': value, 'date': date, 'note': note})
+            data['estimates'] = estimates
+            return {'estimate': row}
+
+    created = {
+        'id': _row_id('estimate', data, len(estimates) + 1, now),
+        'stage': stage, 'value': value, 'date': date or now.strftime('%Y-%m-%d'),
+    }
+    if note:
+        created['note'] = note
+    estimates.append(created)
+    data['estimates'] = estimates
+    return {'estimate': created}
+
+
+def _delete_estimate(data, params, _now):
+    estimate_id = str(params.get('estimate_id', '') or '').strip()
+    if not estimate_id:
+        raise ApiError('Missing `estimate_id` parameter.')
+    data['estimates'] = [row for row in csv_to_list(data.get('estimates'))
+                         if not (isinstance(row, dict) and row.get('id') == estimate_id)]
 
 
 def _delete_milestone(data, params, _now):
@@ -370,6 +479,7 @@ def _require_todo_id(params):
 # ─── Routing table ───────────────────────────────────────────────────────────
 ROUTES = {
     'update': _update_project,
+    'simple-update': _simple_update_project,
     'advanced-update': _advanced_update_project,
     'set': _set_value,
     'todo/add': _add_todo,
@@ -381,6 +491,8 @@ ROUTES = {
     'timeline/delete': _delete_timeline_task,
     'milestone/save': _save_milestone,
     'milestone/delete': _delete_milestone,
+    'estimate/save': _save_estimate,
+    'estimate/delete': _delete_estimate,
 }
 
 # "Raw" actions bypass the parse → dict → dump round trip and work on the file
@@ -452,13 +564,27 @@ def _slug(name):
     return re.sub(r'[^a-z0-9]+', '-', ascii_name.lower()).strip('-')
 
 
-def _create_project(repository, params, _now):
+def _filled(params):
     """
-    A card from a name alone.
+    The payload without the values that were left empty.
 
-    The id is the name as a slug unless one is given, the position is the end
-    of the live list, and nothing else is written: every other field already
-    has a meaning when absent, so the card is as small as the format allows.
+    An update clears a field by sending it empty; a creation has nothing to
+    clear, and writing `- dates` with an empty deadline under it would put a
+    group in the file for an answer nobody gave.
+    """
+    return {key: value for key, value in params.items()
+            if not (isinstance(value, str) and not value.strip())}
+
+
+def _create_project(repository, params, now):
+    """
+    A card from a name, and whatever else the dialog carried.
+
+    The id is the name as a slug unless one is given, and the position is the
+    end of the live list. Everything beyond that is optional and declared in
+    `schema.simple_fields`: a field the payload does not mention is not
+    written, because every one of them already has a meaning when absent and
+    the card should be as small as the format allows.
     """
     name = str(params.get('name', '')).strip()
     if not name:
@@ -474,8 +600,14 @@ def _create_project(repository, params, _now):
     live = [project for project in repository.list_all()
             if display_group(project, repository.settings) == settings_module.LIVE_GROUP]
     rank = 1 + max((project['_prio_num'] for project in live), default=0)
-    repository.save(project_id, {'id': project_id, 'name': name, 'type': 'project',
-                                 'priority': str(rank), 'status': 'active'})
+    card = {'id': project_id, 'name': name, 'type': 'project',
+            'priority': str(rank), 'status': 'active'}
+
+    _check_optional_span(params)
+    schema.apply_fields(card, _filled(params), schema.simple_fields(repository.settings))
+    _record_estimate(card, now)
+
+    repository.save(project_id, card)
     return {'project': project_id}
 
 

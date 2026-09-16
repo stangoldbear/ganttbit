@@ -15,13 +15,17 @@ from .domain import (
     Timeline,
     band_position,
     chart_spans,
+    declared_span,
     format_date_long,
     format_relative,
     group_by_display,
     group_color,
     group_order,
     group_title,
+    is_closed_group,
+    latest_estimate,
     is_display_group,
+    project_estimates,
     project_milestones,
     project_span,
     project_tasks,
@@ -31,7 +35,8 @@ from .domain import (
 from .cardmd import NOTES_HEADING
 from .gantt import caret
 from .markup import (
-    attrs, ensure_list, esc, human_size, icon, render_markdown, safe_url, select,
+    attrs, ensure_list, esc, human_size, icon, join_url, render_markdown, safe_url,
+    select,
 )
 
 _LINK_FIELD_CLASS = {
@@ -73,7 +78,7 @@ def _link_chip(value, base_url, link_class):
     text = str(value).strip()
     if not text:
         return ''
-    href = safe_url(base_url + text)
+    href = safe_url(join_url(base_url, text))
     if not href:
         return f'<span class="badge badge--outline">{esc(text)}</span>'
     return (f'<a class="{link_class}" href="{esc(href)}" target="_blank" '
@@ -199,7 +204,7 @@ def render_detail_row(project, group, at=100.0, settings=None):
     )
 
     jira_request = str(jira.get('request', '') or '')
-    jira_href = safe_url(config.jira_base_url + jira_request) if jira_request else ''
+    jira_href = safe_url(join_url(config.jira_base_url, jira_request)) if jira_request else ''
     jira_open = (f'<a href="{esc(jira_href)}" target="_blank" rel="noopener noreferrer" '
                  f'class="jira-link">{icon("link")}Open</a>') if jira_href else ''
 
@@ -225,6 +230,48 @@ def render_detail_row(project, group, at=100.0, settings=None):
         f'<span class="chip-when">{esc(format_date_long(row["start"], config))} → '
         f'{esc(format_date_long(row["end"], config))}</span></button>'
         for row in rows
+    ) or '<span class="editable-empty">None</span>'
+
+    # The bar of the project itself, and the only place it can be drawn from
+    # scratch: a new card declares no span, so there is nothing in the chart to
+    # grab. What is written and what is drawn are kept apart, because a card
+    # with rows and no `timeline.start` already has a bar derived from them.
+    declared = declared_span(project)
+    drawn = project_span(project, config)
+    # The dialog opens on the bar that is there, declared or derived: writing
+    # a derived span down is then two clicks rather than two dates.
+    span_start = drawn[0].strftime('%Y-%m-%d') if drawn else ''
+    span_end = drawn[1].strftime('%Y-%m-%d') if drawn else ''
+    if declared:
+        span_chip = (f'<span class="badge badge--outline">'
+                     f'{esc(format_date_long(declared[0], config))} → '
+                     f'{esc(format_date_long(declared[1], config))}</span>')
+    elif drawn:
+        span_chip = (f'<span class="editable-empty">Derived from the rows: '
+                     f'{esc(format_date_long(drawn[0], config))} → '
+                     f'{esc(format_date_long(drawn[1], config))}</span>')
+    else:
+        span_chip = '<span class="editable-empty">None</span>'
+    span_button = (
+        f'<button type="button" class="btn btn--outline btn--sm" data-action="span-open"'
+        f'{attrs(project=project_id)} data-start="{span_start}" data-end="{span_end}">'
+        f'{icon("pencil") if declared else icon("plus")}'
+        f'{"Edit" if declared else "Set"}</button>')
+
+    # The estimates, oldest first: the history is the point, because the number
+    # a project was given before anyone looked at it is still what somebody was
+    # told. The last one is the one in force, and says so in a word rather than
+    # only in its position.
+    estimates = project_estimates(project)
+    in_force = latest_estimate(project)
+    estimate_chips = ''.join(
+        f'<button type="button" class="badge badge--outline" data-action="estimate-open"'
+        f'{attrs(project=project_id, estimate=row.get("id", ""), stage=row.get("stage", ""), note=row.get("note", ""))}'
+        f' data-value="{esc(row.get("value", ""))}" data-date="{esc(row.get("date", ""))}">'
+        f'<span class="chip-when">{esc(row.get("stage", ""))}</span>'
+        f'{esc(row.get("value", ""))}'
+        f'{" — now" if row is in_force else ""}</button>'
+        for row in estimates
     ) or '<span class="editable-empty">None</span>'
 
     milestones = project_milestones(project, config)
@@ -328,6 +375,22 @@ def render_detail_row(project, group, at=100.0, settings=None):
 
             <div class="detail-field">
               <div class="field-heading">
+                <span class="field-label">Estimates ({len(estimates)})</span>
+                <button type="button" class="btn btn--outline btn--sm" data-action="estimate-open" data-project="{esc(project_id)}">{icon('plus')}Add</button>
+              </div>
+              <div class="chips" id="estimates-{esc(project_id)}">{estimate_chips}</div>
+            </div>
+
+            <div class="detail-field">
+              <div class="field-heading">
+                <span class="field-label">Project span</span>
+                {span_button}
+              </div>
+              <div class="chips">{span_chip}</div>
+            </div>
+
+            <div class="detail-field">
+              <div class="field-heading">
                 <span class="field-label">Timeline ({len(rows)})</span>
                 <button type="button" class="btn btn--outline btn--sm" data-action="row-open" data-project="{esc(project_id)}" data-task="new" data-who="" data-note="" data-start="" data-end="">{icon('plus')}Add</button>
               </div>
@@ -387,19 +450,23 @@ def render_global_todos(projects, settings=None, inbox=None):
     Open actions, in priority order, the inbox first.
 
     Finished and abandoned work is left out: it should not keep asking for
-    attention. Its notes stay readable in its own panel.
+    attention. Its notes stay readable in its own panel. A project that has not
+    started is not finished work, so it stays on the list: the note to chase an
+    estimate is exactly the one worth seeing before the work begins.
     """
     config = settings or settings_module.current()
-    live = group_by_display(projects, config).get(settings_module.LIVE_GROUP, [])
+    grouped = group_by_display(projects, config)
+    listed = [project for group in group_order(config) if not is_closed_group(group)
+              for project in grouped.get(group, [])]
     cards, total_active, total_done = [], 0, 0
 
-    for index, project in enumerate(live):
+    for index, project in enumerate(listed):
         todos = project.get('todos') or []
         history = project.get('done') or []
         total_active += len(todos)
         total_done += len(history)
         if todos or history:
-            cards.append(_todo_card(project, band_position(index, len(live)),
+            cards.append(_todo_card(project, band_position(index, len(listed)),
                                     todos, history, config))
 
     inbox_todos = (inbox or {}).get('todos') or []
@@ -582,8 +649,13 @@ def _shell(config, *, timeline, header_side, content, overlays='', zoom=''):
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>{esc(config.title)}</title>
   <link rel="icon" href="{_FAVICON}">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="manifest" href="/static/manifest.webmanifest">
   <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="{esc(config.title)}">
   {_css_variables(timeline, config)}
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/themes.css">
@@ -799,7 +871,10 @@ def render_page(projects, *, window='', zoom='', today=None, settings=None):
   <div class="advedit-panel">
     <div class="advedit-header">
       <h3 id="advedit-title">Advanced edit</h3>
-      <button type="button" class="btn btn--secondary btn--sm" data-action="advanced-edit-close">Close</button>
+      <span class="detail-header__actions">
+        <button type="button" class="btn btn--outline btn--sm" data-action="advanced-edit-simple" title="The handful of fields, in one form">{icon('pencil')}Simple edit</button>
+        <button type="button" class="btn btn--secondary btn--sm" data-action="advanced-edit-close">Close</button>
+      </span>
     </div>
     <div class="tabs advedit-tabs">
       <button type="button" class="tab tab--active" id="advedit-tab-form" data-action="advanced-edit-tab" data-tab="form">Form</button>

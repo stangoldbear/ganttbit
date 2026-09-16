@@ -1,15 +1,21 @@
 """
 The project card schema, declared once.
 
-`api` validates and applies updates from it, and the browser renders the
-Advanced Edit form from the same declaration served as JSON. Adding a field
-is a one-line change here, instead of three edits kept in sync by hand.
+`api` validates and applies updates from it, and the browser renders its forms
+— Advanced Edit, and New project — from the same declaration served as JSON.
+Adding a field is a one-line change here, instead of three edits kept in sync
+by hand.
 """
 
 from . import settings as settings_module
+from .domain import used_values
 from .repository import csv_to_list, ensure_dict
 
-TEXT, LIST, BOOL, ROWS, BODY = 'text', 'list', 'bool', 'rows', 'body'
+# DATE and LONG are TEXT with a shape: a calendar day, and a value that needs
+# more than one line. Coercion treats both as TEXT — only the control the
+# browser draws for them differs.
+TEXT, DATE, LONG, LIST, BOOL, ROWS, BODY = (
+    'text', 'date', 'long', 'list', 'bool', 'rows', 'body')
 DEADLINE_TYPES = [value for value, _label in settings_module.DEADLINE_OPTIONS]
 
 
@@ -18,7 +24,15 @@ class ValidationError(ValueError):
 
 
 def field(path, label, kind=TEXT, *, param=None, choices=None, readonly=False,
-          required=False, help=''):
+          required=False, suggest=None, help=''):
+    """
+    One declared value.
+
+    `choices` is a closed vocabulary: anything else is refused. `suggest` is an
+    open one — the values named here are offered, the vault's own are added to
+    them by `as_json`, and something new is still accepted. That is the
+    difference between a status and a tag.
+    """
     return {
         'path': path,
         'param': param or path,
@@ -27,6 +41,7 @@ def field(path, label, kind=TEXT, *, param=None, choices=None, readonly=False,
         'choices': list(choices) if choices else None,
         'readonly': readonly,
         'required': required,
+        'suggest': None if suggest is None else list(suggest),
         'help': help,
     }
 
@@ -54,6 +69,13 @@ MILESTONE_COLUMNS = [
     _row('id', 'ID'),
     _row('date', 'Date'),
     _row('text', 'Text'),
+]
+ESTIMATE_COLUMNS = [
+    _row('id', 'ID'),
+    _row('stage', 'Stage', settings_module.ESTIMATE_STAGES),
+    _row('value', 'Value'),
+    _row('date', 'Given on'),
+    _row('note', 'What moved it'),
 ]
 RISK_COLUMNS = [
     _row('id', 'ID'),
@@ -91,9 +113,11 @@ def sections(settings=None):
          'path': 'timeline.tasks', 'columns': TASK_COLUMNS},
         {'key': 'milestones', 'legend': 'Milestones', 'kind': ROWS,
          'path': 'milestones', 'columns': MILESTONE_COLUMNS},
+        {'key': 'estimates', 'legend': 'Estimates', 'kind': ROWS,
+         'path': 'estimates', 'columns': ESTIMATE_COLUMNS},
         {'key': 'tech_footprint', 'legend': 'Technical footprint', 'fields': [
             field('tech_footprint.platforms', 'Platforms', LIST,
-                  help='Comma separated'),
+                  suggest=config.platforms, help='Comma separated'),
             field('tech_footprint.qa_effort', 'QA effort',
                   choices=settings_module.QA_EFFORT_OPTIONS),
             field('tech_footprint.content_impact', 'Content impact', BOOL),
@@ -151,6 +175,51 @@ def quick_fields():
         field('jira.epics', 'Jira epics', LIST, param='jira_epics'),
         field('confluence', 'Confluence links', LIST, param='confluence_links'),
         field('figma', 'Figma links', LIST, param='figma_links'),
+    ]
+
+
+# ─── Simple edit (New project, and the same form over a card that exists) ────
+def simple_fields(settings=None):
+    """
+    What the simple form asks for, in the order it asks.
+
+    The card as somebody has it in their head when a project turns up: what it
+    is called, whether it has started, when it runs, how big it is, and what is
+    already written down about it elsewhere. Everything else has a meaning when
+    absent and is one gesture away in the panel or in Advanced Edit, so it is
+    not asked for here. The dialog is rendered from this list, as the Advanced
+    Edit form is rendered from `sections`.
+    """
+    config = settings or settings_module.current()
+    return [
+        field('name', 'Project name', required=True),
+        field('status', 'Status', choices=settings_module.STATUS_OPTIONS,
+              help='A project nobody has started yet is `inactive`: its own band '
+                   'under the list.'),
+        field('timeline.start', 'Start', DATE, param='start',
+              help='The project bar. Both dates, or neither.'),
+        field('timeline.end', 'End', DATE, param='end'),
+        field('dates.deadline_text', 'Deadline (chart badge)', param='deadline_text',
+              help='A date, or free text: mid September'),
+        field('dates.deadline_type', 'Deadline type', param='deadline_type',
+              choices=DEADLINE_TYPES),
+        field('tech_footprint.platforms', 'Platforms', LIST, param='platforms',
+              suggest=config.platforms, help='Comma separated'),
+        field('tech_footprint.qa_effort', 'QA effort', param='qa_effort',
+              choices=settings_module.QA_EFFORT_OPTIONS),
+        # Not a value at a path: an answer here is a new estimate, and the
+        # endpoint turns it into one. The `_` prefix is the card format's own
+        # convention for a key that never reaches the file.
+        field('_new_estimate', 'Effort estimate', param='estimate',
+              help='Kept as history: a value that moved is added, the old ones stay.'),
+        field('_new_estimate_stage', 'Estimate stage', param='estimate_stage',
+              choices=settings_module.ESTIMATE_STAGES,
+              help='Which conversation the number came out of.'),
+        field('jira.request', 'Jira request', param='jira_request',
+              help=config.jira_placeholder),
+        field('confluence', 'Confluence links', LIST, param='confluence_links',
+              help='Comma separated'),
+        field('intro', 'Why & scope', LONG, help='Markdown. Headings, lists and links.'),
     ]
 
 
@@ -265,6 +334,25 @@ def apply_rows(data, params, settings=None):
         set_path(data, section['path'], clean_rows(rows, section['columns']))
 
 
-def as_json(settings=None):
-    """The schema the browser renders the Advanced Edit form from."""
-    return {'sections': sections(settings)}
+def _offer(fields, projects):
+    """Complete every open vocabulary with the values the cards already use."""
+    for entry in fields:
+        if entry['suggest'] is not None:
+            entry['suggest'] = used_values(projects, entry['path'], entry['suggest'])
+    return fields
+
+
+def as_json(settings=None, projects=()):
+    """
+    The schema the browser renders its forms from: Advanced Edit, and simple.
+
+    `projects` is the loaded vault, and the only thing it is read for: an open
+    vocabulary is declared with the values settings knows and served with those
+    the cards have grown since, so a tag typed once can be picked next time.
+    """
+    config = settings or settings_module.current()
+    blocks = sections(config)
+    for block in blocks:
+        if 'fields' in block:
+            _offer(block['fields'], projects)
+    return {'sections': blocks, 'simple': _offer(simple_fields(config), projects)}

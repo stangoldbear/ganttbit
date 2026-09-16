@@ -55,6 +55,24 @@ def select(select_id, options, current, param, css_class='form-input'):
 
 _CONTROL_RE = re.compile(r'[\x00-\x20\x7f]')
 
+# A value that already names a scheme is an address, not a fragment of one.
+_ABSOLUTE_URL_RE = re.compile(r'^[a-z][a-z0-9+.\-]*://', re.IGNORECASE)
+
+
+def join_url(base, value):
+    """
+    The target of a link built from a base and what the card holds.
+
+    A card may hold the key the base resolves (`NIMBUS-1042`) or the whole
+    address, pasted from the browser. Prefixing an address is what turns it
+    into `https://jira.example.com/browse/https://...`, so an absolute value
+    is its own target and the base has nothing to add to it.
+    """
+    text = str(value or '').strip()
+    if _ABSOLUTE_URL_RE.match(text):
+        return text
+    return f'{base or ""}{text}'
+
 
 def safe_url(value):
     """Return the URL only when it uses a scheme a link may safely open."""

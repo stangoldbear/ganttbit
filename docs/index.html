@@ -123,11 +123,13 @@
     <div class="grid grid--2">
       <div class="card">
         <h3>The chart</h3>
-        <p>One ranked list, with DONE and DROPPED at the bottom. Every project
-        carries a coloured band that fades as the list goes down, so the order
-        reads at a glance. Drag a project to reorder it, or onto a group to
-        finish it; drag a bar to move it, or either edge to resize it, in whole
-        working days. Zoom from a day per column to two years on one screen.</p>
+        <p>One ranked list, with INACTIVE, DONE and DROPPED in bands underneath:
+        work that has not started is not in flight, and it is not finished
+        either. Every live project carries a coloured band that fades as the
+        list goes down, so the order reads at a glance. Drag a project to
+        reorder it, or onto a group to finish it; drag a bar to move it, or
+        either edge to resize it, in whole working days. Zoom from a day per
+        column to two years on one screen.</p>
       </div>
       <div class="card">
         <h3>Every project, in place</h3>
@@ -135,20 +137,46 @@
         attachments of any type, milestones on the lane, and an action list with
         history. Every value reads as information and becomes an editor when
         you ask it to, with an explicit Save and a delete that always asks.</p>
+        <p>Effort is a history rather than a number: a project is sized roughly,
+        then refined, then revised when something lands, and the distance
+        between the first estimate and the last is the conversation. Tags are an
+        open vocabulary — the field offers what the vault already uses and still
+        takes something new.</p>
+      </div>
+      <div class="card">
+        <h3>A project starts in one dialog</h3>
+        <p><em>New project</em> asks for what you have in your head when one
+        turns up: the name, the span its bar is drawn from, the deadline badge,
+        the platforms, the QA effort, the first estimate and why it exists. Only
+        the name is required, and what you leave empty is left out of the card
+        rather than written empty. The same form edits a card that exists.</p>
+      </div>
+      <div class="card">
+        <h3>A note before there is a project</h3>
+        <p>Not everything worth writing down belongs to something yet. The
+        inbox takes a note with no project attached — a card like any other on
+        disk, kept out of the chart and the project count until you decide
+        where it goes.</p>
       </div>
       <div class="card">
         <h3>The whole vault as one document</h3>
-        <p>A hierarchy view that shows every value every card holds, and a
-        markdown tab that is every card concatenated, editable in one go and
-        downloadable as a monthly snapshot. A block with an unknown id creates a
-        card; a card whose block is missing is never deleted.</p>
+        <p>A structure view that shows every value every card holds, read at
+        four levels — the names, the dates, the people, everything — and at the
+        amount of detail you ask for. Double-click any value and it edits in
+        place, through the same validation the forms use. Beside it, a markdown
+        tab that is every card concatenated, editable in one go and downloadable
+        as a monthly snapshot. A block with an unknown id creates a card; a card
+        whose block is missing is never deleted.</p>
       </div>
       <div class="card">
         <h3>A phone with its own interface</h3>
         <p>On a phone it is a list of project cards with the span, the
         milestones and what is asking for attention. Tap one and the project
         takes the screen, notes first, with every value editable where it
-        stands.</p>
+        stands. Behind a stable address it installs to the home screen: its own
+        icon, its own window, and a shell that paints before the data arrives —
+        while the data itself is never served from a cache, because a chart that
+        quietly refuses to save is worse than a page that says it is offline.</p>
       </div>
     </div>
   </div>
@@ -177,6 +205,16 @@
       - flags
         - crit
       - note: Menu API v2
+- estimates
+  - estimate-1
+    - stage: raw
+    - value: 40d
+    - date: 2026-08-20
+  - estimate-2
+    - stage: detailed
+    - value: 55d
+    - date: 2026-09-08
+    - note: Menu API v2 came back bigger
 - milestones
   - milestone-1
     - date: 2026-11-14

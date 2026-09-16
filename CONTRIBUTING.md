@@ -62,8 +62,10 @@ These are the rules that keep the codebase small. Breaking one is how a
    emits them as CSS custom properties. If you find yourself writing `340` in
    the stylesheet or in the script, stop.
 4. The card schema is declared once, in `ganttbit/schema.py`. The API
-   validates and applies from it; the browser renders the Advanced Edit form
-   from the same declaration, served at `/api/schema`.
+   validates and applies from it; the browser renders its forms — Advanced
+   Edit, and New project — from the same declaration, served at
+   `/api/schema`. A form is a list of declared fields, never a list of
+   controls written in the script.
 5. Validate at the boundary. An unknown `status` or `severity` is
    refused with a 400 before it can reach a file. Never let an invalid value
    land in the vault to be normalised later.
@@ -77,11 +79,13 @@ These are the rules that keep the codebase small. Breaking one is how a
 | Goal | Where |
 |---|---|
 | add a card field | `ganttbit/schema.py`, one entry; form and API follow |
+| ask for a field in the simple form (New project, Edit) | `schema.simple_fields`, one entry |
 | add an API action | register a function in `ganttbit/api.ROUTES` |
 | adjust the small-screen layout | the `@media` blocks at the end of `app.css`; the server emits the metrics before the stylesheet so a media query can narrow them |
 | change how access is granted | `server._authorised`, the single gate every verb passes through |
 | let a new file type open inline | `settings.INLINE_ATTACHMENT_TYPES`, only for types that cannot carry script |
 | add a role or a squad member | `settings.toml` |
+| add a band under the live list | `settings.DISPLAY_GROUPS`, one entry; `closed` says whether its notes leave the action list |
 | change a colour or a metric | `settings.py`, and `ganttbit/static/theme.js` for the priority band, which is solved per theme |
 | change the wording of the chrome | `settings.toml`, `[app]` |
 
@@ -116,6 +120,12 @@ field is a `- ` item, a group is two spaces deeper, and free text lives under
   - request: NIMBUS-1042
   - epics
     - NIMBUS-1043
+- estimates                            (the history, oldest first; the last
+  - estimate-1                          one is the estimate in force)
+    - stage: raw                       (raw | preview | detailed)
+    - value: 40d                       (free text: 40d, 6w, 2 sprint, L)
+    - date: 2026-07-14
+    - note: before any analysis
 - todos
   - todo-1788000000
     - text: …
@@ -146,6 +156,12 @@ Attachments live in `<projects>/attachments/<project-id>/`, one folder per
 card, listed straight from the filesystem: the card never mentions them, so
 there is nothing to drift. Dropping a file in the folder and uploading it from
 the panel have the same result.
+
+An estimate is never overwritten. A number came out of a conversation and was
+true when it was given, so a new one is appended rather than replacing the last
+— which is why `estimates` is a list and nothing in it says which row is
+current: the last one is, the same way a note is open because it sits under
+`todos`.
 
 The chart is drawn from the cards alone. `timeline.start` with `end` or
 `days` gives the project its bar, each `timeline.tasks` row gives one person

@@ -968,6 +968,17 @@
     node.style.color = style.fg;
   }
 
+  /* A base and what the card holds make one target, and the same rule applies
+     on both sides of the wire (ganttbit/markup.py: join_url): a value that
+     already names a scheme is an address, so the base has nothing to add. A
+     pasted `https://...` prefixed anyway is a link that cannot open. */
+  var ABSOLUTE_URL = /^[a-z][a-z0-9+.\-]*:\/\//i;
+
+  function joinUrl(base, value) {
+    var text = String(value == null ? '' : value).trim();
+    return ABSOLUTE_URL.test(text) ? text : (base || '') + text;
+  }
+
   /* The read-only half is refreshed from the controls that were just saved:
      `data-from` names the parameter, `data-format` how to spell it. */
   function refreshFieldView(field, payload) {
@@ -989,7 +1000,7 @@
 
       var anchor = node.parentNode.querySelector('a.jira-link');
       if (node.dataset.linkBase !== undefined && anchor) {
-        anchor.href = value ? node.dataset.linkBase + value : '#';
+        anchor.href = value ? joinUrl(node.dataset.linkBase, value) : '#';
         anchor.hidden = !value;
       }
     });
@@ -1013,8 +1024,7 @@
   /* A chip borrows its icon from one the server already rendered, so the SVG
      lives in exactly one place. */
   function buildChip(box, value) {
-    var base = box.dataset.baseUrl || '';
-    var href = base + value;
+    var href = joinUrl(box.dataset.baseUrl, value);
     var isLink = /^https?:\/\//.test(href) || (href && href.indexOf('://') === -1);
     if (!isLink) {
       var plain = document.createElement('span');
@@ -1372,6 +1382,102 @@
     cursor[parts[parts.length - 1]] = value;
   }
 
+  /* ─── An open vocabulary ────────────────────────────────────────────────────
+     Platforms are tags, not a closed set: a tag typed once should be pickable
+     the next time rather than typed again, differently. The values arrive with
+     the schema — every one the vault already holds at that path — and what is
+     filtered is the value being typed, which in a comma separated field is the
+     segment after the last comma. Clicking the field with nothing typed offers
+     the lot. */
+  function attachSuggest(input, values, multiple) {
+    var box = document.createElement('div');
+    box.className = 'suggest';
+    box.hidden = true;
+    var at = -1;
+
+    function segment() {
+      var text = input.value;
+      return (multiple ? text.slice(text.lastIndexOf(',') + 1) : text).trim();
+    }
+
+    function chosen() {
+      if (!multiple) return [];
+      return input.value.split(',').slice(0, -1)
+        .map(function (part) { return part.trim().toLowerCase(); });
+    }
+
+    function accept(value) {
+      var cut = multiple ? input.value.lastIndexOf(',') : -1;
+      input.value = (cut === -1 ? '' : input.value.slice(0, cut + 1) + ' ') + value;
+      close();
+      input.focus();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function close() { box.hidden = true; at = -1; }
+
+    function highlight() {
+      within(box, '.suggest__option').forEach(function (option, index) {
+        option.classList.toggle('is-on', index === at);
+      });
+    }
+
+    function open() {
+      if (!input.parentNode) return;
+      if (box.parentNode !== input.parentNode) input.parentNode.appendChild(box);
+
+      var typed = segment().toLowerCase();
+      var taken = chosen();
+      var matches = values.filter(function (value) {
+        var lowered = value.toLowerCase();
+        return lowered.indexOf(typed) === 0 && taken.indexOf(lowered) === -1;
+      });
+      if (!matches.length) return close();
+
+      box.replaceChildren();
+      matches.forEach(function (value) {
+        var option = document.createElement('button');
+        option.type = 'button';
+        option.className = 'suggest__option';
+        option.textContent = value;
+        // mousedown, not click: blur would close the list first.
+        option.addEventListener('mousedown', function (event) {
+          event.preventDefault();
+          accept(value);
+        });
+        box.appendChild(option);
+      });
+      at = -1;
+      box.style.top = (input.offsetTop + input.offsetHeight + 2) + 'px';
+      box.hidden = false;
+    }
+
+    input.setAttribute('autocomplete', 'off');
+    input.addEventListener('focus', open);
+    input.addEventListener('click', open);
+    input.addEventListener('input', open);
+    input.addEventListener('blur', function () { setTimeout(close, 0); });
+    input.addEventListener('keydown', function (event) {
+      var options = within(box, '.suggest__option');
+      if (event.key === 'Escape' && !box.hidden) {
+        event.stopPropagation();
+        return close();
+      }
+      if (box.hidden || !options.length) return;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        at = (at + (event.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length;
+        return highlight();
+      }
+      if (event.key === 'Enter' && at !== -1) {
+        // The dialog submits on Enter; picking from the list is not that.
+        event.preventDefault();
+        event.stopPropagation();
+        accept(options[at].textContent);
+      }
+    });
+  }
+
   function fieldControl(field, value) {
     var attributes = {
       'data-param': field.param,
@@ -1383,6 +1489,15 @@
     if (field.kind === 'body') {
       element = document.createElement('textarea');
       element.className = 'advedit-raw-textarea advedit-body-text';
+      element.value = value == null ? '' : String(value);
+    } else if (field.kind === 'date') {
+      element = document.createElement('input');
+      element.type = 'date';
+      element.className = 'form-input';
+      element.value = value == null ? '' : String(value);
+    } else if (field.kind === 'long') {
+      element = document.createElement('textarea');
+      element.className = 'form-input';
       element.value = value == null ? '' : String(value);
     } else if (field.kind === 'bool') {
       element = document.createElement('input');
@@ -1418,6 +1533,9 @@
 
     element.dataset.param = field.param;
     element.dataset.kind = field.kind;
+    if (field.suggest && field.suggest.length) {
+      attachSuggest(element, field.suggest, field.kind === 'list');
+    }
     if (field.readonly) {
       element.setAttribute('readonly', 'readonly');
       element.setAttribute('disabled', 'disabled');
@@ -1557,6 +1675,8 @@
     return payload;
   }
 
+  /* One document, both forms: the Advanced Edit sections and the New project
+     field list come from the same /api/schema, fetched once. */
   function loadSchema() {
     if (AdvEdit.schema) return Promise.resolve(AdvEdit.schema);
     return fetch('/api/schema')
@@ -1830,8 +1950,13 @@
 
   /* ─── A dialog with a form in it ────────────────────────────────────────────
      One builder for every small edit that is not worth a panel: a milestone, a
-     timeline row, a project name. Fields in, values out, and a DELETE that
-     asks again when the caller offers one. */
+     timeline row, a project name, a whole new project. Fields in, values out,
+     and a DELETE that asks again when the caller offers one.
+
+     A field is `{key, label, type, value, placeholder}` and becomes an input,
+     or `{key, label, control}` when the caller has already built the control —
+     which is how a form declared in schema.py reaches this dialog through the
+     one renderer there is. */
   function formDialog(options) {
     var overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
@@ -1856,21 +1981,61 @@
       caption.className = 'field-label';
       caption.textContent = field.label;
 
-      var input = document.createElement('input');
-      input.type = field.type || 'text';
-      input.className = 'form-input';
-      input.value = field.value || '';
-      if (field.placeholder) input.placeholder = field.placeholder;
+      var input = field.control;
+      if (!input) {
+        input = document.createElement('input');
+        input.type = field.type || 'text';
+        input.className = 'form-input';
+        input.value = field.value || '';
+        if (field.placeholder) input.placeholder = field.placeholder;
+      }
       inputs[field.key] = input;
 
       label.append(caption, input);
+      if (field.help) {
+        var hint = document.createElement('small');
+        hint.className = 'dialog__hint';
+        hint.textContent = field.help;
+        label.appendChild(hint);
+      }
       fields.appendChild(label);
     });
 
     var actions = document.createElement('div');
     actions.className = 'dialog__actions';
 
+    function readValues() {
+      var values = {};
+      Object.keys(inputs).forEach(function (key) {
+        var control = inputs[key];
+        values[key] = control.type === 'checkbox' ? control.checked : control.value;
+      });
+      return values;
+    }
+
     function close() { overlay.remove(); Dialog.open = null; }
+
+    // What the form held when it opened. Leaving it with something else in it
+    // asks first, the way every other editor does: this dialog used to carry
+    // one name and now carries most of a card, so a stray click outside it
+    // costs more than it used to.
+    var opened = JSON.stringify(readValues());
+
+    function dismiss(then) {
+      guardDiscard(JSON.stringify(readValues()) !== opened, then || close);
+    }
+
+    if (options.sideAction) {
+      var side = document.createElement('button');
+      side.type = 'button';
+      side.className = 'btn btn--outline btn--sm';
+      side.textContent = options.sideAction.label;
+      side.style.marginRight = 'auto';
+      side.addEventListener('click', function () {
+        dismiss(function () { close(); options.sideAction.onClick(); });
+      });
+      actions.appendChild(side);
+    }
 
     if (options.onDelete) {
       var remove = document.createElement('button');
@@ -1895,40 +2060,42 @@
     cancel.type = 'button';
     cancel.className = 'btn btn--secondary btn--sm';
     cancel.textContent = 'Cancel';
-    cancel.addEventListener('click', close);
+    cancel.addEventListener('click', function () { dismiss(); });
 
     var save = document.createElement('button');
     save.type = 'button';
     save.className = 'btn btn--default btn--sm';
     save.textContent = options.confirmLabel || 'Save';
     save.addEventListener('click', function () {
-      var values = {};
-      Object.keys(inputs).forEach(function (key) { values[key] = inputs[key].value; });
+      var values = readValues();
       var complaint = options.validate ? options.validate(values) : '';
       if (complaint) return Toast.error(complaint);
 
+      function commit() { close(); options.onSave(values); }
+      // Writing a card asks first, when the footer says to. A form that has
+      // just been filled in and submitted has already been confirmed by the
+      // filling in, so a caller may say so.
+      if (options.confirmSave === false) return commit();
       guard('save', {
         title: options.saveTitle || 'Save this change?',
         body: 'The card is rewritten on disk.',
         confirmLabel: 'Save'
-      }, function () {
-        close();
-        options.onSave(values);
-      });
+      }, commit);
     });
 
     overlay.addEventListener('mousedown', function (event) {
-      if (event.target === overlay) close();
+      if (event.target === overlay) dismiss();
     });
     box.addEventListener('keydown', function (event) {
       if (event.key === 'Enter' && event.target.tagName === 'INPUT') save.click();
     });
+    if (options.wide) box.classList.add('dialog--wide');
 
     actions.append(cancel, save);
     box.append(title, fields, actions);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
-    Dialog.open = close;
+    Dialog.open = function () { dismiss(); };
 
     var first = fields.querySelector('input');
     if (first) first.focus();
@@ -1973,6 +2140,52 @@
     });
   }
 
+  /* ─── Estimates ─────────────────────────────────────────────────────────────
+     A number given for a project is never a correction of the last one: it
+     came out of a later conversation. So this dialog adds a row to a history
+     rather than overwriting a value, and opening an existing chip corrects the
+     row it belongs to — a typo, a date, why it moved. */
+  function openEstimate(schema, data) {
+    var pid = data.project;
+    var id = data.estimate || '';
+    formDialog({
+      title: id ? 'Estimate' : 'New estimate',
+      saveTitle: 'Save this estimate?',
+      deleteTitle: 'Delete this estimate?',
+      fields: [
+        { key: 'value', label: 'Value', type: 'text', value: data.value || '',
+          placeholder: 'How big: 40d, 6w, 2 sprint, L' },
+        { key: 'stage', label: 'Stage', control: stageSelect(schema, data.stage || '') },
+        { key: 'date', label: 'Given on', type: 'date', value: data.date || '' },
+        { key: 'note', label: 'What moved it', type: 'text', value: data.note || '',
+          placeholder: 'Why this is not the last number' }
+      ],
+      validate: function (values) {
+        return String(values.value || '').trim() ? '' : 'An estimate needs a value.';
+      },
+      onSave: function (values) {
+        projectApi(pid, 'estimate/save', {
+          estimate_id: id, value: values.value, stage: values.stage,
+          date: values.date, note: values.note
+        }).then(function () { location.reload(); })
+          .catch(function () { /* reported */ });
+      },
+      onDelete: id ? function () {
+        projectApi(pid, 'estimate/delete', { estimate_id: id })
+          .then(function () { location.reload(); })
+          .catch(function () { /* reported */ });
+      } : null
+    });
+  }
+
+  /* The stages are the schema's, not this file's. */
+  function stageSelect(schema, current) {
+    var declared = (schema.simple || []).find(function (field) {
+      return field.param === 'estimate_stage';
+    });
+    return fieldControl(declared || { param: 'stage', kind: 'text', choices: [] }, current);
+  }
+
   /* ─── One timeline row ──────────────────────────────────────────────────────
      Clicking the person in the label column edits the row they own: who it
      belongs to, when it runs, and what it is. */
@@ -2006,6 +2219,33 @@
       },
       onDelete: taskId === 'new' ? null : function () {
         projectApi(pid, 'timeline/delete', { task_id: taskId })
+          .then(function () { location.reload(); })
+          .catch(function () { /* reported */ });
+      }
+    });
+  }
+
+  /* ─── The project's own bar ─────────────────────────────────────────────────
+     The span is dragged and resized in the chart, but only once it exists: a
+     card that declares none has an empty lane and nothing to grab. The panel
+     is where the first one is written, through the endpoint the drag already
+     uses — a span is a bar with no row of its own, so it sends no `who`. */
+  function openProjectSpan(el) {
+    var pid = el.dataset.project;
+    formDialog({
+      title: 'Project span',
+      saveTitle: 'Save this span?',
+      fields: [
+        { key: 'start', label: 'Start', type: 'date', value: el.dataset.start || '' },
+        { key: 'end', label: 'End', type: 'date', value: el.dataset.end || '' }
+      ],
+      validate: function (values) {
+        if (!values.start || !values.end) return 'A span needs a start and an end.';
+        if (values.end < values.start) return 'A span cannot end before it starts.';
+        return '';
+      },
+      onSave: function (values) {
+        projectApi(pid, 'timeline/save', { task_id: '', start: values.start, end: values.end })
           .then(function () { location.reload(); })
           .catch(function () { /* reported */ });
       }
@@ -2263,66 +2503,99 @@
     input.focus();
   }
 
-  /* One field, one button: the id and everything else are the server's call. */
+  /* ─── The simple form ───────────────────────────────────────────────────────
+     One overlay over the handful of fields somebody has in their head when a
+     project turns up: what it is called, whether it has started, when it runs,
+     how big it is, and what is already written down about it elsewhere. The
+     same form creates a card and edits one — the only differences are what it
+     opens on and where it posts.
+
+     The list is not written here. It is `schema.simple_fields`, served with
+     the schema and drawn by the same control renderer the Advanced Edit form
+     uses, so a field is added in one place and the open vocabularies arrive
+     with it. Advanced Edit is one button away, and comes back the same way:
+     two views of one card, never two sources for it. */
+  function simpleForm(options) {
+    var data = options.data || {};
+    loadSchema().then(function (schema) {
+      formDialog({
+        title: options.title,
+        confirmLabel: options.confirmLabel,
+        saveTitle: options.saveTitle,
+        confirmSave: false,
+        wide: true,
+        sideAction: options.sideAction,
+        fields: (schema.simple || []).map(function (field) {
+          return {
+            key: field.param,
+            label: field.label,
+            help: field.help,
+            control: fieldControl(field, valueAt(data, field.path))
+          };
+        }),
+        validate: function (values) {
+          var from = String(values.start || '').trim();
+          var to = String(values.end || '').trim();
+          if (!String(values.name || '').trim()) return 'A project needs a name.';
+          if ((from && !to) || (to && !from)) return 'A span needs a start and an end, or neither.';
+          if (from && to && to < from) return 'A span cannot end before it starts.';
+          return '';
+        },
+        onSave: options.onSave
+      });
+    }).catch(function (err) {
+      Toast.error('Could not open the form: ' + err.message);
+    });
+  }
+
+  /* A card that does not exist yet is active unless the form says otherwise,
+     which is what the endpoint would have done with no answer at all. */
   function openNewProject() {
-    var overlay = document.createElement('div');
-    overlay.className = 'dialog-overlay';
-    var box = document.createElement('div');
-    box.className = 'dialog';
-    box.setAttribute('role', 'dialog');
-    box.setAttribute('aria-modal', 'true');
+    simpleForm({
+      title: 'New project',
+      confirmLabel: 'Create',
+      data: { status: 'active' },
+      onSave: function (values) {
+        post('/api/project/_batch/create', values).then(function (result) {
+          Reveal.after(result.project);
+          location.reload();
+        }).catch(function () { /* reported */ });
+      }
+    });
+  }
 
-    var title = document.createElement('h3');
-    title.className = 'dialog__title';
-    title.textContent = 'New project';
-
-    var label = document.createElement('label');
-    label.className = 'dialog__field';
-    var caption = document.createElement('span');
-    caption.className = 'field-label';
-    caption.textContent = 'Name';
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'form-input';
-    input.placeholder = 'What the card is called';
-    label.append(caption, input);
-
-    var actions = document.createElement('div');
-    actions.className = 'dialog__actions';
-    var cancel = document.createElement('button');
-    cancel.type = 'button';
-    cancel.className = 'btn btn--secondary btn--sm';
-    cancel.textContent = 'Cancel';
-    var create = document.createElement('button');
-    create.type = 'button';
-    create.className = 'btn btn--default btn--sm';
-    create.textContent = 'Create';
-
-    function close() { overlay.remove(); Dialog.open = null; }
-    function submit() {
-      var name = input.value.trim();
-      if (!name) return input.focus();
-      close();
-      post('/api/project/_batch/create', { name: name }).then(function (result) {
-        Reveal.after(result.project);
-        location.reload();
-      }).catch(function () { /* reported */ });
+  /* What the simple form opens on: the card, plus the two answers that are not
+     plain values in it. A bar may be declared as a start and a count of working
+     days, and this form has two dates; an estimate is the last of a history,
+     and this form has one field. The endpoint resolved both. */
+  function formValues(card) {
+    var data = Object.assign({}, card.data || {});
+    if (card.span) data.timeline = Object.assign({}, data.timeline, card.span);
+    if (card.estimate) {
+      data._new_estimate = card.estimate.value;
+      data._new_estimate_stage = card.estimate.stage;
     }
-    cancel.addEventListener('click', close);
-    create.addEventListener('click', submit);
-    input.addEventListener('keydown', function (event) {
-      if (event.key === 'Enter') { event.preventDefault(); submit(); }
-    });
-    overlay.addEventListener('mousedown', function (event) {
-      if (event.target === overlay) close();
-    });
+    return data;
+  }
 
-    actions.append(cancel, create);
-    box.append(title, label, actions);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-    Dialog.open = close;
-    input.focus();
+  function openSimpleEdit(pid) {
+    fetch('/api/project/' + encodeURIComponent(pid) + '/raw')
+      .then(function (response) { return response.json(); })
+      .then(function (card) {
+        if (!card.success) throw new Error(card.error || 'Could not load the project');
+        simpleForm({
+          title: 'Edit project',
+          confirmLabel: 'Save',
+          saveTitle: 'Save this card?',
+          data: formValues(card),
+          sideAction: { label: 'Advanced edit', onClick: function () { openAdvancedEdit(pid); } },
+          onSave: function (values) {
+            // Still a reload: a status can move the project to another band.
+            reloadOnSuccess(projectApi(pid, 'simple-update', values));
+          }
+        });
+      })
+      .catch(function (err) { Toast.error('Could not open the project: ' + err.message); });
   }
 
   function openMove(pid) {
@@ -2646,7 +2919,28 @@
       });
     },
 
+    'simple-edit-open': function (el, data) { openSimpleEdit(data.project); },
     'advanced-edit-open': function (el, data) { openAdvancedEdit(data.project); },
+    /* The other view of the same card. What was typed here has not been saved,
+       and the simple form cannot serialise a card it does not show, so it is
+       reloaded from the file on the way over — the same rule the two tabs of
+       this editor already follow. */
+    'advanced-edit-simple': function () {
+      var pid = AdvEdit.pid;
+      if (!pid) return;
+      if (!AdvEdit.dirty) { closeAdvancedEdit(); return openSimpleEdit(pid); }
+      Dialog.confirm({
+        title: 'Discard your changes?',
+        body: 'The simple form is a second editor over the same card, and it does ' +
+              'not know what you typed here. It is reloaded from the file.',
+        confirmLabel: 'Discard',
+        destructive: true
+      }).then(function (confirmed) {
+        if (!confirmed) return;
+        closeAdvancedEdit();
+        openSimpleEdit(pid);
+      });
+    },
     'advanced-edit-close': function () {
       guardDiscard(AdvEdit.dirty, function () { closeAdvancedEdit(); });
     },
@@ -2727,6 +3021,13 @@
     'milestone-open': function (el, data) {
       openMilestone(data.project, data.milestone || '', '');
     },
+    /* The stages come from the schema, so the dialog waits for it the way the
+       simple form does rather than naming them here. */
+    'estimate-open': function (el, data) {
+      loadSchema().then(function (schema) { openEstimate(schema, data); })
+        .catch(function (err) { Toast.error('Could not open the form: ' + err.message); });
+    },
+    'span-open': function (el) { openProjectSpan(el); },
     /* The row dialog is opened from three places: the person in the chart, the
        chip in the panel, and Add, which is the same dialog with nothing in it. */
     'row-open': function (el) {
@@ -3443,6 +3744,18 @@
       DragAndDrop.init();
       BarDrag.init();
       TodoOrder.init();
+    }
+
+    /* The service worker caches the shell and nothing else — /api/ is never
+       intercepted, because a chart that paints from cache and then refuses to
+       save is worse than a page that says it is offline. Registering it is
+       what makes the app installable; on a browser without one, or over plain
+       HTTP off localhost, the page is exactly what it was. */
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/static/sw.js', { scope: '/' })
+          .catch(function () { /* not installable here; the page still works */ });
+      });
     }
   });
 })();

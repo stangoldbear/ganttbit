@@ -281,6 +281,7 @@ def _project_row(project, group, at, rows_of_project, timeline, config):
         <span class="deadline-pill" style="background:{deadline_style['bg']};color:{deadline_style['fg']}">{esc(format_date_long(deadline_raw, config))} [{esc(deadline_type.upper())}]</span>
       </span>
       <span class="project-row__actions">
+        <button type="button" class="btn btn--ghost btn--sm btn--icon" title="Edit" aria-label="Edit {esc(name)}" data-action="simple-edit-open" data-project="{esc(project_id)}">{icon('pencil')}</button>
         <button type="button" class="btn btn--ghost btn--sm btn--icon" title="Notes &amp; actions" aria-label="Notes and actions for {esc(name)}" data-action="toggle-detail" data-project="{esc(project_id)}">{icon('panel')}</button>
         <button type="button" class="btn btn--ghost btn--sm btn--icon" title="Advanced edit" aria-label="Advanced edit of {esc(name)}" data-action="advanced-edit-open" data-project="{esc(project_id)}">{icon('sliders')}</button>
       </span>
