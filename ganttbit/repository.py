@@ -73,7 +73,10 @@ class ProjectRepository:
 
     def read_raw(self, project_id):
         """Return the card text as it is on disk, or None."""
-        path = self.path_for(project_id)
+        return self._read_text(self.path_for(project_id))
+
+    @staticmethod
+    def _read_text(path):
         if not os.path.isfile(path):
             return None
         with open(path, 'r', encoding='utf-8') as handle:
@@ -181,7 +184,10 @@ class ProjectRepository:
         """Every card concatenated, in the order the chart draws them."""
         blocks = []
         for project in self.list_all():
-            text = self.read_raw(project['id'])
+            # The file the card was read from, not a path rebuilt from a value
+            # inside it: an `- id:` that disagrees with its file name is a card
+            # to fix, never a card to leave out of the snapshot.
+            text = self._read_text(os.path.join(self.directory, project['_file']))
             if text:
                 blocks.append(text.strip())
         return '\n\n'.join(blocks) + '\n' if blocks else ''

@@ -466,6 +466,13 @@
     Dialog.confirm(options).then(function (confirmed) { if (confirmed) run(); });
   }
 
+  /* A cancel with nothing to lose is not a question. The setting reads "leaving
+     an editor with unsaved text", so an editor that was only opened closes. */
+  function guardDiscard(changed, run) {
+    if (!changed) return run();
+    guard('cancel', DISCARD, run);
+  }
+
   /* ─── UI state persistence ──────────────────────────────────────────────── */
   var UIState = {
     save: function () {
@@ -940,6 +947,18 @@
     closeField(field);
   }
 
+  /* The mirror of `resetField`: has any control moved away from the value it
+     would be put back to? A link row added or removed counts too. */
+  function fieldChanged(field) {
+    if (within(field, '.link-row[data-added="1"], .link-row[hidden]').length) return true;
+    return fieldInputs(field).some(function (input) {
+      var original = input.dataset.kind === 'list'
+        ? input.defaultValue
+        : (input.dataset.value || '');
+      return input.value !== original;
+    });
+  }
+
   var STATUS_STYLES = {};
   var DEADLINE_STYLES = {};
 
@@ -1214,6 +1233,15 @@
     });
   }
 
+  function noteChanged(pid, todoId) {
+    return todoRows(pid, todoId).some(function (row) {
+      var text = row.querySelector('.todo-edit-text');
+      var deadline = row.querySelector('.todo-edit-dl');
+      return (!!text && text.value !== (row.dataset.text || '')) ||
+             (!!deadline && deadline.value !== (row.dataset.dl || ''));
+    });
+  }
+
   function commitEdit(pid, todoId) {
     var row = todoRows(pid, todoId).find(function (candidate) {
       return candidate.querySelector('.todo-edit-text');
@@ -1281,6 +1309,12 @@
     box.innerHTML = box.__snapshot || '';
     delete box.dataset.editing;
     delete box.__snapshot;
+  }
+
+  function introChanged(pid) {
+    var box = byId('intro-box-' + pid);
+    var textarea = box && box.querySelector('.intro-edit-textarea');
+    return !!textarea && textarea.value !== (box.dataset.text || '');
   }
 
   function commitIntroEdit(pid) {
@@ -2200,8 +2234,7 @@
       leaf.focus();
     }
     function discard() {
-      if (input.value === current) return close();
-      guard('cancel', DISCARD, close);
+      guardDiscard(input.value !== current, close);
     }
     function commit() {
       guard('save', SAVE_FIELD, function () {
@@ -2516,12 +2549,8 @@
     'todo-add-cancel': function (el, data) {
       var textInput = byId('new-todo-text-' + data.project);
       var dateInput = byId('new-todo-dl-' + data.project);
-      if (!textInput || !textInput.value.trim()) {
-        if (dateInput) dateInput.value = '';
-        return;
-      }
-      guard('cancel', DISCARD, function () {
-        textInput.value = '';
+      guardDiscard(!!(textInput && textInput.value.trim()), function () {
+        if (textInput) textInput.value = '';
         if (dateInput) dateInput.value = '';
       });
     },
@@ -2555,12 +2584,16 @@
     'todo-save':   function (el, data) { commitEdit(data.project, data.todo); },
     'todo-move': function (el, data) { moveTodo(data.project, data.todo, Number(data.delta)); },
     'todo-cancel': function (el, data) {
-      guard('cancel', DISCARD, function () { cancelEdit(data.project, data.todo); });
+      guardDiscard(noteChanged(data.project, data.todo), function () {
+        cancelEdit(data.project, data.todo);
+      });
     },
 
     'intro-save':   function (el, data) { commitIntroEdit(data.project); },
     'intro-cancel': function (el, data) {
-      guard('cancel', DISCARD, function () { cancelIntroEdit(data.project); });
+      guardDiscard(introChanged(data.project), function () {
+        cancelIntroEdit(data.project);
+      });
     },
 
     'platform-toggle': function (el, data) {
@@ -2575,7 +2608,7 @@
     'field-save':   function (el) { saveField(el.closest('.editable-field')); },
     'field-cancel': function (el) {
       var field = el.closest('.editable-field');
-      guard('cancel', DISCARD, function () { resetField(field); });
+      guardDiscard(fieldChanged(field), function () { resetField(field); });
     },
 
     'link-add': function (el, data) {
@@ -2615,10 +2648,13 @@
 
     'advanced-edit-open': function (el, data) { openAdvancedEdit(data.project); },
     'advanced-edit-close': function () {
-      guard('cancel', DISCARD, function () { closeAdvancedEdit(); });
+      guardDiscard(AdvEdit.dirty, function () { closeAdvancedEdit(); });
     },
+    /* Clicking outside the panel closes it like the button does, and loses as
+       much: it asks the same question before it throws anything away. */
     'advanced-edit-backdrop': function (el, data, event) {
-      if (event && event.target && event.target.id === 'advanced-edit-overlay') closeAdvancedEdit();
+      if (!event || !event.target || event.target.id !== 'advanced-edit-overlay') return;
+      guardDiscard(AdvEdit.dirty, function () { closeAdvancedEdit(); });
     },
     /* The two tabs are two editors over one card, and neither can serialise
        the other: switching with unsaved changes reloads the card, so the tab

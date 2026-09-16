@@ -566,7 +566,6 @@ body.col-resize-active { cursor: col-resize; user-select: none; }
   border-left: 3px solid var(--rail, transparent);
   background: color-mix(in srgb, var(--rail) var(--band-tint), hsl(var(--card)));
 }
-.resource-cell--flat { padding-left: 16px; }
 .resource-line { font-size: 10.5px; color: hsl(var(--muted-foreground)); display: flex; align-items: center; gap: 6px; }
 .resource-line[data-action] { cursor: pointer; border-radius: 4px; }
 .resource-line[data-action]:hover { background: hsl(var(--muted)); }
@@ -739,8 +738,6 @@ body.col-resize-active { cursor: col-resize; user-select: none; }
 .chip-when { color: hsl(var(--muted-foreground) / .8); font-weight: 400; }
 .field-row { display: flex; gap: 6px; }
 .field-stack { display: flex; flex-direction: column; gap: 6px; }
-.field-inline { display: flex; align-items: center; gap: 6px; }
-.field-inline__label { font-size: 11px; color: hsl(var(--muted-foreground)); width: 62px; font-weight: 500; }
 .field-heading {
   display: flex; justify-content: space-between; align-items: center;
   font-size: 11px; color: hsl(var(--muted-foreground)); font-weight: 500;
@@ -1244,7 +1241,7 @@ input[type="checkbox"] { accent-color: hsl(var(--primary)); }
   .project-row__signals { margin-left: 0; }
   .detail-grid { grid-template-columns: 1fr; gap: 14px; }
   .detail-panel-box { padding: 12px; }
-  .field-row, .link-row, .field-inline { flex-wrap: wrap; }
+  .field-row, .link-row { flex-wrap: wrap; }
   /* Every row in the panel wraps rather than reaching past the right edge:
      the platform chips, the Add button beside a heading, the ✕ that removes a
      link. A long unbroken value (a URL, a Jira key) breaks instead of pushing

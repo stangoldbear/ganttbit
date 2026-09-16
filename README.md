@@ -26,7 +26,7 @@ python3 dashboard.py
 
 | Flag | Meaning |
 |---|---|
-| `--settings PATH` | settings file (default `settings.local.toml`, else `settings.toml`) |
+| `--settings PATH` | one settings file, instead of `settings.toml` with `settings.local.toml` layered over it |
 | `--vault PATH` | vault root, keeping the folder layout from the settings |
 | `--projects PATH` | directory of project cards (overrides `--vault`) |
 | `--host`, `--port` | bind address and port (default `127.0.0.1:8080`) |
@@ -262,7 +262,7 @@ Two rules worth keeping:
 python3 -m unittest test_ganttbit -v
 ```
 
-122 tests, standard library only. The sample vault is the fixture: it contains
+142 tests, standard library only. The sample vault is the fixture: it contains
 a blocked project, a malformed card, a project with no timeline task, notes
 with quotes and newlines, deliberately awkward names and past/future tasks.
 

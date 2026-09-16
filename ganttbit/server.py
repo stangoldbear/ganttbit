@@ -29,6 +29,12 @@ _TOKEN_COOKIE = 'dah_token'
 mimetypes.add_type('text/markdown', '.md')
 mimetypes.add_type('application/manifest+json', '.webmanifest')
 
+# Text that does not say so in its type. Everything else under static/ is bytes.
+_TEXT_TYPES = frozenset({
+    'application/javascript', 'text/javascript', 'application/json',
+    'application/manifest+json', 'image/svg+xml',
+})
+
 # The page carries one inline <style> block with the layout custom properties;
 # everything else is same-origin, so no external request ever leaves the host.
 _SECURITY_HEADERS = {
@@ -238,7 +244,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.close_connection = True
             raise ApiError(f'Payload too large (limit {max_bytes // (1024 * 1024)} MB).',
                            status=413)
-        # ponytail: the whole body sits in memory; stream to the temp file if
+        # The whole body sits in memory; stream it to the temp file instead if
         # the upload cap ever grows past what a laptop shrugs at.
         return self.rfile.read(length)
 
@@ -290,10 +296,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return self._send_error_page(404, 'Asset not found')
 
         content_type = mimetypes.guess_type(target)[0] or 'application/octet-stream'
+        # An encoding belongs to text: declaring one on a PNG says the file is
+        # something it is not.
+        if content_type.startswith('text/') or content_type in _TEXT_TYPES:
+            content_type += '; charset=utf-8'
         with open(target, 'rb') as handle:
             body = handle.read()
 
-        self._respond(200, body, f'{content_type}; charset=utf-8',
+        self._respond(200, body, content_type,
                       extra_headers={'Cache-Control': 'no-cache'})
 
     def _send_html(self, markup):

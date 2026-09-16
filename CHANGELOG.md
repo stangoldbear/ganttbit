@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## 1.2.0 - 2026-09-16
+
+### Fixed
+
+- A project saved with an empty name stopped being a project. The name is the
+  card's `# title` line, so a blank one left a file that no longer read as a
+  card at all: it dropped out of the chart, the list, the project count and the
+  snapshot, and the application could no longer load it to put the name back.
+  An empty name is refused before anything is written now, wherever it is
+  typed — the panel, the advanced form, the structure view.
+- The `- id:` of a card is no longer edited from the structure view. It is the
+  name of the file the card lives in, and changing one without the other left a
+  card the chart could still draw but nothing could address.
+- The whole-vault snapshot holds every card again. It looked each card up by
+  the `- id:` the card itself declares, so a card whose id and file name had
+  drifted apart was quietly missing from the document that *Download the
+  snapshot* and the markdown tab hand you. It reads the file each card was read
+  from instead.
+- The notes of a hand-edited card no longer answer with an internal error. A
+  `- todos:` holding a line of text rather than a list of notes is a card
+  somebody typed, and editing, completing, deleting or reordering the notes
+  around it now answers normally and leaves that line exactly where it was.
+- Reordering the notes refuses a payload it cannot read, instead of failing
+  with an internal error, and still moves nothing it was not asked to move.
+- *Ask before discarding* only asks when there is something to discard. Opening
+  the advanced editor and closing it again, or opening a field and cancelling
+  it, asked you to confirm the loss of text nobody had typed. The setting reads
+  "leaving an editor with unsaved text", and now that is what it does — and
+  clicking outside the advanced editor, which used to close it without asking
+  anything at all, asks the same question the Close button does.
+- A deadline a year away reads *in 1 year* rather than *in 1 years*.
+- `--migrate-vault` writes each converted card the way every other write in the
+  application goes out: a sibling temp file, renamed into place. It was the one
+  path left that truncated the file it was rewriting.
+- A link whose address hides a control character in front of its scheme is
+  refused like the scheme it hides. The content security policy already stopped
+  it from doing anything; the check agrees with it now.
+
 ## 1.1.0 - 2026-09-13
 
 - A project can be created from the interface. *New project* in the header,

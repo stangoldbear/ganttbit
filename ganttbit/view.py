@@ -538,7 +538,7 @@ def _zoom_switch(current):
     return f'<div class="tabs tabs--sm" id="zoom-switch">{buttons}</div>'
 
 
-def _window_switch(current, timeline):
+def _window_switch(current):
     """The span the chart is drawn through, and the date behind the last one."""
     custom = current not in _WINDOW_LABELS
     options = ''.join(
@@ -789,7 +789,7 @@ def render_page(projects, *, window='', zoom='', today=None, settings=None):
       <div class="gantt-toolbar__actions">
         {_depth_switch()}
         {_zoom_switch(zoom_key)}
-        {_window_switch(window_key, timeline)}
+        {_window_switch(window_key)}
       </div>
     </div>
     {chart}

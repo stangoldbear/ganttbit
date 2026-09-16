@@ -17,7 +17,8 @@ class ValidationError(ValueError):
     """Rejected input, with a message meant for the user."""
 
 
-def field(path, label, kind=TEXT, *, param=None, choices=None, readonly=False, help=''):
+def field(path, label, kind=TEXT, *, param=None, choices=None, readonly=False,
+          required=False, help=''):
     return {
         'path': path,
         'param': param or path,
@@ -25,6 +26,7 @@ def field(path, label, kind=TEXT, *, param=None, choices=None, readonly=False, h
         'kind': kind,
         'choices': list(choices) if choices else None,
         'readonly': readonly,
+        'required': required,
         'help': help,
     }
 
@@ -67,7 +69,7 @@ def sections(settings=None):
     config = settings or settings_module.current()
     return [
         {'key': 'general', 'legend': 'General', 'fields': [
-            field('name', 'Project name'),
+            field('name', 'Project name', required=True),
             field('priority', 'Priority', readonly=True,
                   help='Set by drag & drop in the chart'),
             field('status', 'Status', choices=settings_module.STATUS_OPTIONS),
@@ -137,7 +139,7 @@ def row_sections(settings=None):
 # ─── Quick edit (the inline detail panel) ────────────────────────────────────
 def quick_fields():
     return [
-        field('name', 'Project name'),
+        field('name', 'Project name', required=True),
         field('status', 'Status', choices=settings_module.STATUS_OPTIONS),
         field('blocked_reason', 'Blocking reason'),
         field('intro', 'Intro'),
@@ -210,6 +212,10 @@ def coerce(entry, value):
         return str(value)
 
     text = '' if value is None else str(value).strip()
+    # A required value is what the card cannot be read without. `name` is the
+    # `# title` line: written empty, the file stops parsing as a card at all.
+    if entry.get('required') and not text:
+        raise ValidationError(f"`{entry['label']}` cannot be empty.")
     choices = entry['choices']
     if choices and text and text not in choices:
         raise ValidationError(

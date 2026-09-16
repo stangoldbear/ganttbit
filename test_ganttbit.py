@@ -26,8 +26,8 @@ from ganttbit import (__version__, gantt, markup, schema,
 from ganttbit.api import ApiError, delete_attachment, dispatch, upload_attachment
 from ganttbit.domain import (
     Timeline, band_position, chart_spans, display_group, format_date_long,
-    group_by_display, project_milestones, project_span, project_tasks, resolve_person,
-    resolve_range,
+    format_relative, group_by_display, project_milestones, project_span,
+    project_tasks, resolve_person, resolve_range,
 )
 from ganttbit.cardmd import build_card, parse_card
 from ganttbit.migrate import (
@@ -231,11 +231,13 @@ class MigrationTest(unittest.TestCase):
             with open(card + '.bak', encoding='utf-8') as handle:
                 self.assertEqual(handle.read(), self.YAML_CARD)
 
-            converted = open(card, encoding='utf-8').read()
+            with open(card, encoding='utf-8') as handle:
+                converted = handle.read()
             second = migrate_vault(folder)
             self.assertEqual(second['converted'], [])
             self.assertEqual(second['skipped'], ['p1.md'])
-            self.assertEqual(open(card, encoding='utf-8').read(), converted)
+            with open(card, encoding='utf-8') as handle:
+                self.assertEqual(handle.read(), converted)
 
 
 class DropTiersTest(unittest.TestCase):
@@ -499,6 +501,14 @@ class RepositoryTest(VaultTestCase):
         self.repo.apply_vault_markdown(one)
         self.assertEqual(len(self.repo.list_all()), before)
 
+    def test_the_snapshot_holds_a_card_whose_id_disagrees_with_its_file(self):
+        """A hand-edited `- id:` is a card to fix, never a card to leave out."""
+        path = os.path.join(self.repo.directory, 'mismatched.md')
+        write_atomic(path, '# Mismatched\n- id: not-the-file-name\n- status: active\n')
+        self.assertIn('# Mismatched', self.repo.vault_markdown())
+        self.assertEqual(len(split_cards(self.repo.vault_markdown())),
+                         len(self.repo.list_all()))
+
     def test_a_block_that_cannot_name_a_card_is_reported_not_written(self):
         result = self.repo.apply_vault_markdown(
             '# No id here\n- tier: tier-1\n\n'
@@ -557,6 +567,23 @@ class DomainTest(unittest.TestCase):
         self.assertEqual(format_date_long('24/08/2026', self.settings), '24 August 26')
         self.assertEqual(format_date_long('mid October', self.settings), 'mid October')
         self.assertEqual(format_date_long('', self.settings), '')
+
+    def test_a_deadline_reads_as_time_remaining(self):
+        def away(days):
+            return format_relative((TODAY + timedelta(days=days)).isoformat(), TODAY,
+                                   self.settings)
+
+        self.assertEqual(away(0), 'today')
+        self.assertEqual(away(1), 'tomorrow')
+        self.assertEqual(away(-1), 'yesterday')
+        self.assertEqual(away(3), 'in 3 days')
+        self.assertEqual(away(14), 'in 2 weeks')
+        self.assertEqual(away(90), 'in 3 months')
+        self.assertEqual(away(365), 'in 1 year')
+        self.assertEqual(away(-730), '2 years ago')
+        self.assertEqual(away(500), 'in 1.4 years')
+        # A deadline that is not a date has no distance to report.
+        self.assertEqual(format_relative('mid October', TODAY, self.settings), '')
 
     def test_the_ramp_runs_end_to_end_over_the_list(self):
         self.assertEqual(band_position(0, 10), 0.0)
@@ -772,6 +799,63 @@ class SchemaAndApiTest(VaultTestCase):
         after, _ = self.repo.load(self.PROJECT)
         self.assertEqual(after['id'], self.PROJECT)
         self.assertEqual(after['priority'], '1')
+
+    def test_an_empty_name_is_refused_by_every_path_that_can_write_one(self):
+        """The name is the `# title` line: written empty, the file stops being a card."""
+        for action, payload in (('update', {'name': ''}),
+                                ('advanced-update', {'name': '   '}),
+                                ('set', {'path': 'name', 'value': ''})):
+            with self.assertRaises(ApiError) as caught:
+                dispatch(self.repo, self.PROJECT, action, payload, now=NOW)
+            self.assertEqual(caught.exception.status, 400)
+
+        data, _ = self.repo.load(self.PROJECT)
+        self.assertEqual(data['name'], 'Navigation menu — second level')
+
+    def test_the_id_is_not_a_value_the_structure_view_edits(self):
+        """It is the name of the file: the card and its file would stop agreeing."""
+        with self.assertRaises(ApiError) as caught:
+            dispatch(self.repo, self.PROJECT, 'set',
+                     {'path': 'id', 'value': 'something-else'}, now=NOW)
+        self.assertEqual(caught.exception.status, 400)
+        self.assertEqual(self.repo.load(self.PROJECT)[0]['id'], self.PROJECT)
+
+    def test_a_note_handler_answers_rather_than_raises_on_a_hand_edited_card(self):
+        """`- todos: buy milk` is a card someone typed, not a reason for a 500."""
+        card = os.path.join(self.repo.directory, 'hand.md')
+        write_atomic(card, '# Hand edited\n- id: hand\n- todos: buy milk\n')
+
+        for action in ('todo/update', 'todo/toggle'):
+            with self.assertRaises(ApiError) as caught:
+                dispatch(self.repo, 'hand', action,
+                         {'todo_id': 'buy milk', 'text': 'x'}, now=NOW)
+            self.assertEqual(caught.exception.status, 404)
+
+        # Deleting what is not a note removes nothing and raises nothing, and
+        # the line someone typed is still in the card afterwards.
+        dispatch(self.repo, 'hand', 'todo/delete', {'todo_id': 'buy milk'}, now=NOW)
+        self.assertIn('buy milk', self.repo.read_raw('hand'))
+        dispatch(self.repo, 'hand', 'todo/reorder', {'order': ['buy milk']}, now=NOW)
+        self.assertIn('buy milk', self.repo.read_raw('hand'))
+
+    def test_reordering_refuses_a_payload_it_cannot_read_and_deletes_nothing(self):
+        dispatch(self.repo, self.PROJECT, 'todo/add', {'text': 'first'}, now=NOW)
+        dispatch(self.repo, self.PROJECT, 'todo/add', {'text': 'second'}, now=NOW)
+        before = [item['id'] for item in self.repo.load(self.PROJECT)[0]['todos']]
+
+        with self.assertRaises(ApiError):
+            dispatch(self.repo, self.PROJECT, 'todo/reorder', {'order': 'nope'}, now=NOW)
+        # A list of anything at all: answered, never raised.
+        dispatch(self.repo, self.PROJECT, 'todo/reorder',
+                 {'order': [{'not': 'an id'}, None, 7]}, now=NOW)
+        self.assertEqual([item['id'] for item in self.repo.load(self.PROJECT)[0]['todos']],
+                         before)
+
+        # A reorder is not a delete: what the payload forgot keeps its place.
+        dispatch(self.repo, self.PROJECT, 'todo/reorder', {'order': [before[-1]]}, now=NOW)
+        after = [item['id'] for item in self.repo.load(self.PROJECT)[0]['todos']]
+        self.assertEqual(after[0], before[-1])
+        self.assertEqual(sorted(after), sorted(before))
 
     def test_todo_lifecycle(self):
         dispatch(self.repo, self.PROJECT, 'todo/add', {'text': 'new note'}, now=NOW)
@@ -1250,6 +1334,8 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(markup.ensure_list('a,b'), ['a,b'])        # never splits
         self.assertEqual(markup.safe_url('javascript:x'), '')
         self.assertEqual(markup.safe_url('https://x.test'), 'https://x.test')
+        # A browser drops the control character and reads the scheme behind it.
+        self.assertEqual(markup.safe_url('\x01javascript:alert(1)'), '')
 
 
 class TokenTest(VaultTestCase):

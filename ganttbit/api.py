@@ -73,6 +73,9 @@ def _set_value(data, params, _now):
     if path == '_body':
         data['_new_body'] = str(value)
         return {'value': str(value).strip()}
+    if path == 'id':
+        raise ApiError('`id` is the name of the file the card lives in: renaming '
+                       'one means renaming the other, which is not an edit.')
 
     parent, key = _walk(data, path)
     entry = schema.entry_for(path)
@@ -147,7 +150,7 @@ def _update_todo(data, params, _now):
 
     for collection in ('todos', 'done'):
         for item in csv_to_list(data.get(collection)):
-            if item.get('id') == todo_id:
+            if _is_note(item, todo_id):
                 item['text'] = text
                 item['deadline'] = str(params.get('deadline', '')).strip()
                 return {'todo': item, 'html': render_markdown(text)}
@@ -164,14 +167,14 @@ def _toggle_todo(data, params, now):
     # with the list it is in.
     completed = True
     for index, item in enumerate(todos):
-        if item.get('id') == todo_id:
+        if _is_note(item, todo_id):
             moved = todos.pop(index)
             moved['completed_at'] = now.strftime('%Y-%m-%d %H:%M')
             history.insert(0, moved)
             break
     else:
         for index, item in enumerate(history):
-            if item.get('id') == todo_id:
+            if _is_note(item, todo_id):
                 moved = history.pop(index)
                 moved.pop('completed_at', None)
                 todos.append(moved)
@@ -191,7 +194,7 @@ def _delete_todo(data, params, _now):
     for collection in ('todos', 'done'):
         if collection in data:
             data[collection] = [item for item in csv_to_list(data.get(collection))
-                                if item.get('id') != todo_id]
+                                if not _is_note(item, todo_id)]
 
 
 _DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
@@ -317,12 +320,31 @@ def _reorder_todos(data, params, _now):
     if not isinstance(order, list):
         raise ApiError('Missing or invalid `order` parameter.')
 
-    remaining = {item.get('id'): item for item in csv_to_list(data.get('todos'))
-                 if isinstance(item, dict)}
-    reordered = [remaining.pop(todo_id) for todo_id in order if todo_id in remaining]
-    reordered.extend(remaining.values())
-    data['todos'] = reordered
-    return {'order': [item.get('id') for item in reordered]}
+    # The ids as text, and where each one goes: the payload comes from a
+    # browser, and a list holding anything else has to be read by the sort
+    # rather than raise underneath it.
+    wanted = {str(todo_id): position for position, todo_id in enumerate(order)}
+
+    def rank(item):
+        identity = str(item.get('id', '')) if isinstance(item, dict) else ''
+        return wanted.get(identity, len(wanted))
+
+    # A stable sort, so a note the browser did not mention keeps its place at
+    # the end, in the order the card had it, whatever shape it is in.
+    todos = sorted(csv_to_list(data.get('todos')), key=rank)
+    data['todos'] = todos
+    return {'order': [item.get('id') for item in todos if isinstance(item, dict)]}
+
+
+def _is_note(item, todo_id):
+    """
+    True when this entry of `todos` or `done` is the note `todo_id` names.
+
+    A card is hand-edited, so the key can hold anything: a bare string, a list
+    of them, a value typed in the wrong shape. Only an object is a note; the
+    rest is left where it is rather than crashing a handler that assumed.
+    """
+    return isinstance(item, dict) and item.get('id') == todo_id
 
 
 def _require_todo_id(params):

@@ -23,8 +23,6 @@ _GANTT_KEYWORDS = ('gantt', 'title', 'dateFormat', 'axisFormat', 'tickInterval',
 _DURATION_RE = re.compile(r'^\d+d$')
 _PLAN_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}')
 
-import re
-
 _FRONTMATTER_RE = re.compile(r'^---\n(.*?)\n---(.*)', re.DOTALL)
 _BLOCK_HEADERS = {'|', '|-', '|+', '>', '>-', '>+'}
 _URL_SCHEME_RE = re.compile(r'^[\w.+-]+://')
@@ -235,10 +233,8 @@ def migrate_vault(directory):
 
         backup = path + '.bak'
         if not os.path.exists(backup):
-            with open(backup, 'w', encoding='utf-8') as handle:
-                handle.write(text)
-        with open(path, 'w', encoding='utf-8') as handle:
-            handle.write(card)
+            write_atomic(backup, text)
+        write_atomic(path, card)
         converted.append(name)
 
     return {'converted': converted, 'skipped': skipped, 'failed': failed}

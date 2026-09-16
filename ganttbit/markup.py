@@ -53,9 +53,14 @@ def select(select_id, options, current, param, css_class='form-input'):
             f'data-param="{esc(param)}" data-value="{esc(current)}">{choices}</select>')
 
 
+_CONTROL_RE = re.compile(r'[\x00-\x20\x7f]')
+
+
 def safe_url(value):
     """Return the URL only when it uses a scheme a link may safely open."""
-    text = str(value or '').strip()
+    # A browser drops control characters before it reads the scheme, so a
+    # `\x01javascript:` would run what the check below thinks it refused.
+    text = _CONTROL_RE.sub('', str(value or '')).strip()
     lowered = text.lower()
     if lowered.startswith(('http://', 'https://')):
         return text

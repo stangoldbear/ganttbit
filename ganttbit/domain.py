@@ -84,7 +84,8 @@ def format_relative(value, today=None, settings=None):
     elif days < 365:
         amount = f'{round(days / 30)} months'
     else:
-        amount = f'{days / 365:.1f} years'.replace('.0 ', ' ')
+        years = f'{days / 365:.1f}'.removesuffix('.0')
+        amount = f'{years} year' + ('' if years == '1' else 's')
     return f'in {amount}' if ahead else f'{amount} ago'
 
 
