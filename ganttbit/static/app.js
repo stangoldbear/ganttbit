@@ -3658,6 +3658,13 @@
           }
           if (!row.classList.contains('project-main-row')) return;
 
+          /* The band a project is drawn in is written on its own row, which is
+             where `currentOrder` reads it for Move up / Move down. Taking it
+             from the heading above only works for the bands that have one, and
+             the live list is the chart and carries none: every project in it
+             went out with no group at all, the server could not place it, and
+             a reorder inside the live list moved nothing. */
+          currentGroup = row.dataset.groupChild || currentGroup;
           if (row === target && dropPos === 'before') order.push({ id: moved, group: currentGroup });
           if (row !== draggedRow) order.push({ id: row.dataset.projId, group: currentGroup });
           if (row === target && dropPos === 'after') order.push({ id: moved, group: currentGroup });

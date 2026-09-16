@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## 1.4.1 - 2026-09-16
+
+### Fixed
+
+- Dragging a project to reorder it inside the live list does something again.
+  The browser worked out which band each project belonged to by remembering
+  the last band heading it had passed — and the live list is the chart itself
+  and carries no heading, so every project in it was sent with no band at all.
+  The server could not place a project with nowhere to go, skipped it, and
+  answered that it had changed nothing: the bar snapped back and the chart
+  looked untouched. Each row already states the band it is drawn in, which is
+  what *Move up* and *Move down* have always read, and the drag reads it now
+  too. Dropping a project onto DONE, DROPPED or INACTIVE was never affected —
+  those bands do have a heading.
+- A reorder that names a project without a band is refused and says so,
+  instead of being quietly skipped. That silence is what made the bug above
+  look like a chart that had simply decided not to move.
+
 ## 1.4.0 - 2026-09-16
 
 ### Added

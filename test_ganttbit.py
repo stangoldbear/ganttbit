@@ -1200,6 +1200,38 @@ class SchemaAndApiTest(VaultTestCase):
         again = dispatch(self.repo, '_batch', 'reorder', {'order': order}, now=NOW)
         self.assertEqual(again['updated'], 0)
 
+    def test_reorder_refuses_a_project_with_no_group_instead_of_skipping_it(self):
+        """Silently skipping it is what made a broken payload look like a no-op."""
+        before = self.repo.load(self.PROJECT)[0]['priority']
+        for order in ([{'id': self.PROJECT, 'group': None}],
+                      [{'id': self.PROJECT, 'group': ''}],
+                      [{'id': self.PROJECT}]):
+            with self.assertRaises(ApiError):
+                dispatch(self.repo, '_batch', 'reorder', {'order': order}, now=NOW)
+        self.assertEqual(self.repo.load(self.PROJECT)[0]['priority'], before)
+
+        # An entry that names no project at all is not an instruction: skipped.
+        dispatch(self.repo, '_batch', 'reorder',
+                 {'order': [{'group': 'live'}, None, 7]}, now=NOW)
+
+    def test_every_project_row_names_the_band_it_is_drawn_in(self):
+        """
+        The live list carries no heading, so the row is the only place its band
+        is written — and the browser builds a reorder out of exactly this.
+        """
+        dispatch(self.repo, '_batch', 'reorder',
+                 {'order': [{'id': 'project-8-banner-defaults', 'group': 'done'}]}, now=NOW)
+        page = view.render_page(self.repo.list_all(), settings=self.settings)
+
+        rows = re.findall(r'<tr class="project-main-row"[^>]*>', page)
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertRegex(row, r'data-group-child="(live|inactive|done|dropped)"', row)
+        self.assertIn('data-group-child="live"', page)
+        self.assertIn('data-group-child="done"', page)
+        # And the live band really has no heading to read it from.
+        self.assertNotIn('<tr class="group-row" data-group="live"', page)
+
     def test_reorder_refuses_an_unknown_group(self):
         with self.assertRaises(ApiError):
             dispatch(self.repo, '_batch', 'reorder',

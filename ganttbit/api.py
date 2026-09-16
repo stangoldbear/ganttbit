@@ -528,8 +528,13 @@ def _reorder_projects(repository, params, _now):
         if not isinstance(item, dict):
             continue
         project_id, group = item.get('id'), item.get('group')
-        if not project_id or not group:
+        if not project_id:
             continue
+        # A project named with nowhere to put it used to be skipped, so a
+        # payload that had lost its groups answered `updated: 0` — a success,
+        # and a chart that looked like it had simply snapped back.
+        if not group:
+            raise ApiError(f'No group given for `{project_id}`.')
         if group not in groups:
             raise ApiError(f'Unknown group: {group}')
         data, _ = repository.load(project_id)
