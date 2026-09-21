@@ -10,12 +10,13 @@ import json
 import mimetypes
 import os
 import re
+import sys
 from datetime import datetime
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import quote, unquote, urlencode
 
-from . import __version__, schema, settings as settings_module, view
+from . import __version__, schema, settings as settings_module, startup, view
 from .domain import declared_span, latest_estimate
 from .api import ApiError, delete_attachment, dispatch, upload_attachment
 from .repository import ProjectRepository
@@ -387,10 +388,19 @@ def _report_empty_vault(config):
 
 
 def run(settings=None):
+    """
+    Serve until interrupted.
+
+    Returns the exit status: 0 after a clean stop, 1 when nothing was started
+    because the port is taken and was left that way.
+    """
     config = settings or settings_module.current()
-    httpd = create_server(config)
+    print(startup.banner(), flush=True)
+    httpd = startup.bind(lambda: create_server(config), config.host, config.port)
+    if httpd is None:
+        return 1
     host, port = httpd.server_address[0], httpd.server_address[1]
-    shown = '127.0.0.1' if host == '0.0.0.0' else host
+    shown = startup.reachable_host(host)
     if config.token:
         print(f'{config.title} listening on http://{shown}:{port}'
               f'?{_TOKEN_PARAM}={config.token}')
@@ -398,9 +408,12 @@ def run(settings=None):
     else:
         print(f'{config.title} listening on http://{shown}:{port}')
     _report_empty_vault(config)
+    # Everything said so far reaches a log file before the server goes quiet.
+    sys.stdout.flush()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print('\nShutting down.')
     finally:
         httpd.server_close()
+    return 0

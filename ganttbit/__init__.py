@@ -14,8 +14,10 @@ Layers, each with one reason to change:
     view         page and detail panel rendering
     api          mutations, exposed through a routing table
     server       HTTP, static assets, JSON
+    startup      the terminal side of starting: the heading, and the port
+                 another dashboard may already hold
     static/      app.css, themes.css, app.js and theme.js, real files that
                  Python never generates
 """
 
-__version__ = '1.4.1'
+__version__ = '1.4.2'

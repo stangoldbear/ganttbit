@@ -72,8 +72,7 @@ def main(argv):
         directory = (config.projects_dir if args.drop_tiers is True else args.drop_tiers)
         return drop_the_tiers(directory, args.settings or 'settings.toml', args.apply)
 
-    run(config)
-    return 0
+    return run(config)
 
 
 def import_the_plan(config, plan_path, settings_path):

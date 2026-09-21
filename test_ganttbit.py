@@ -9,20 +9,27 @@ have to survive is a real card in `sample-vault/`.
 """
 
 import contextlib
+import errno
+import http.server
 import io
 import json
 import os
 import re
 import shutil
+import signal
+import socket
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
 import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta
+from unittest import mock
 
 from ganttbit import (__version__, gantt, markup, schema,
-                      settings as settings_module, view)
+                      settings as settings_module, startup, view)
 from ganttbit.api import ApiError, delete_attachment, dispatch, upload_attachment
 from ganttbit.domain import (
     Timeline, band_position, chart_spans, declared_span, display_group,
@@ -1989,6 +1996,183 @@ class ServerTest(VaultTestCase):
         self.assertFalse(os.path.exists(os.path.join(self.vault, 'card.md')))
         status, _, _ = self.send('PUT', '/api/project/ghost/attachments/a.txt', b'x')
         self.assertEqual(status, 404)
+
+
+class StartupTest(unittest.TestCase):
+    """What the terminal sees first, and what happens when the port is taken."""
+
+    def test_the_heading_names_the_version_and_the_build(self):
+        first, rule = startup.banner(build='3f9c2a1').splitlines()
+        self.assertEqual(first, f'GanttBit {__version__} · build 3f9c2a1')
+        self.assertEqual(rule, '─' * len(first))
+        # a zip download has no commit to name
+        self.assertEqual(startup.banner(build='').splitlines()[0], f'GanttBit {__version__}')
+
+    @unittest.skipUnless(shutil.which('git'), 'the build is read from git')
+    def test_the_build_is_the_commit_checked_out_and_nothing_without_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(startup.build_id(tmp), '')              # no repository at all
+            os.mkdir(os.path.join(tmp, '.git'))
+            self.assertEqual(startup.build_id(tmp), '')              # git refuses: still not an error
+            shutil.rmtree(os.path.join(tmp, '.git'))
+            git = ['git', '-c', 'user.name=t', '-c', 'user.email=t@example.com']
+            subprocess.run(git + ['init', '-q'], cwd=tmp, check=True, capture_output=True)
+            subprocess.run(git + ['commit', '-q', '--allow-empty', '-m', 'first'],
+                           cwd=tmp, check=True, capture_output=True)
+            self.assertRegex(startup.build_id(tmp), r'^[0-9a-f]{7,}$')
+
+    def test_a_running_dashboard_answers_with_its_version_and_nothing_else_does(self):
+        # Gated: the name still travels in the header of the refusal.
+        settings = settings_module.configure(vault=SAMPLE_VAULT, host='127.0.0.1',
+                                             port=0, token='secret')
+        httpd = create_server(settings)
+        port = httpd.server_address[1]
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            self.assertEqual(startup.running_version('127.0.0.1', port), __version__)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=5)
+        self.assertIsNone(startup.running_version('127.0.0.1', port), 'nothing listens now')
+
+        # Somebody else's HTTP server, and a socket that speaks no HTTP at all.
+        other = http.server.HTTPServer(('127.0.0.1', 0), http.server.BaseHTTPRequestHandler)
+        thread = threading.Thread(target=other.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):     # its own 501 log line
+                self.assertIsNone(startup.running_version('127.0.0.1', other.server_address[1]))
+        finally:
+            other.shutdown()
+            other.server_close()
+            thread.join(timeout=5)
+        with socket.socket() as mute:
+            mute.bind(('127.0.0.1', 0))
+            mute.listen(1)
+            self.assertIsNone(startup.running_version('127.0.0.1', mute.getsockname()[1],
+                                                      timeout=0.2))
+
+    def test_the_question_is_asked_only_at_a_terminal_and_only_yes_means_yes(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        for typed, expected in (('y\n', True), ('YES\n', True), ('n\n', False),
+                                ('\n', False), ('', False)):
+            with mock.patch.object(sys, 'stdin', Terminal(typed)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertIs(startup.confirm('? '), expected, repr(typed))
+        # A pipe is not a terminal: nobody is there to answer, so the answer is no.
+        with mock.patch.object(sys, 'stdin', io.StringIO('y\n')):
+            self.assertFalse(startup.confirm('? '))
+        with mock.patch.object(sys, 'stdin', None):
+            self.assertFalse(startup.confirm('? '))
+
+    def _bind(self, ask, version='1.4.1', pids=(4242,), free_after_stop=True):
+        """Run bind() over a port whose occupant is described rather than real."""
+        stopped = []
+
+        def create():
+            if stopped and free_after_stop:
+                return 'the server'
+            raise OSError(errno.EADDRINUSE, 'Address already in use')
+
+        with mock.patch.object(startup, 'running_version', return_value=version), \
+                mock.patch.object(startup, 'listener_pids', return_value=list(pids)), \
+                mock.patch.object(startup, 'stop', side_effect=stopped.append), \
+                mock.patch.object(startup, '_RELEASE_TIMEOUT', 0.3), \
+                contextlib.redirect_stdout(io.StringIO()) as out, \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            result = startup.bind(create, '127.0.0.1', 8080, ask=ask)
+        return result, stopped, out.getvalue() + err.getvalue()
+
+    def test_a_free_port_is_simply_bound(self):
+        with mock.patch.object(startup, 'running_version',
+                               side_effect=AssertionError('nobody was asked anything')):
+            self.assertEqual(startup.bind(lambda: 'the server', '127.0.0.1', 8080, ask=None),
+                             'the server')
+
+    def test_a_bind_error_that_is_not_a_taken_port_is_not_hidden(self):
+        def create():
+            raise OSError(errno.EACCES, 'Permission denied')
+        with self.assertRaises(OSError):
+            startup.bind(create, '127.0.0.1', 80, ask=None)
+
+    def test_the_other_dashboard_is_stopped_only_on_a_yes(self):
+        asked = []
+        result, stopped, said = self._bind(ask=lambda question: asked.append(question) or False)
+        self.assertIsNone(result)
+        self.assertEqual(stopped, [])
+        self.assertIn('GanttBit 1.4.1 is already listening on http://127.0.0.1:8080 (pid 4242)',
+                      said)
+        self.assertIn('[y/N]', asked[0])
+        self.assertIn('Nothing was changed', said)
+
+        result, stopped, said = self._bind(ask=lambda question: True)
+        self.assertEqual(result, 'the server')
+        self.assertEqual(stopped, [4242])
+        self.assertIn('Stopped GanttBit 1.4.1 (pid 4242)', said)
+
+    def test_anything_that_is_not_ganttbit_is_left_alone_without_asking(self):
+        result, stopped, said = self._bind(ask=lambda question: self.fail('asked'), version=None)
+        self.assertIsNone(result)
+        self.assertEqual(stopped, [])
+        self.assertIn('not GanttBit', said)
+        self.assertIn('--port', said)
+
+    def test_a_process_that_cannot_be_named_is_left_alone(self):
+        for pids in ((), (12, 34)):
+            result, stopped, said = self._bind(ask=lambda question: self.fail('asked'), pids=pids)
+            self.assertIsNone(result, pids)
+            self.assertEqual(stopped, [])
+            self.assertIn('Nothing was changed', said)
+
+    def test_a_port_that_stays_taken_is_reported(self):
+        result, stopped, said = self._bind(ask=lambda question: True, free_after_stop=False)
+        self.assertIsNone(result)
+        self.assertEqual(stopped, [4242])
+        self.assertIn('still taken', said)
+
+    def test_run_prints_the_heading_and_exits_with_1_when_nothing_starts(self):
+        settings = settings_module.configure(vault=SAMPLE_VAULT, host='127.0.0.1', port=8080)
+        with mock.patch.object(startup, 'bind', return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(server_module.run(settings), 1)
+        self.assertTrue(out.getvalue().startswith(f'GanttBit {__version__}'), out.getvalue())
+
+    @unittest.skipUnless(shutil.which('lsof'), 'lsof is what names the process on the port')
+    def test_a_real_dashboard_is_stopped_and_its_port_taken(self):
+        """The whole path, against a second copy of the program: lsof, the signal, the port."""
+        child = subprocess.Popen(
+            [sys.executable, '-u', os.path.join(REPO_ROOT, 'dashboard.py'),
+             '--vault', SAMPLE_VAULT, '--port', '0'],
+            cwd=REPO_ROOT, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            port = None
+            for _ in range(20):
+                line = child.stdout.readline()
+                match = re.search(r'listening on http://127\.0\.0\.1:(\d+)', line)
+                if match or not line:
+                    port = int(match.group(1)) if match else None
+                    break
+            self.assertIsNotNone(port, 'the other copy never said where it listens')
+
+            settings = settings_module.configure(vault=SAMPLE_VAULT, host='127.0.0.1', port=port)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                httpd = startup.bind(lambda: create_server(settings), settings.host,
+                                     settings.port, ask=lambda question: True)
+            self.assertIsNotNone(httpd, 'the port was not taken over')
+            httpd.server_close()
+            self.assertEqual(child.wait(timeout=5), -signal.SIGTERM)
+            self.assertIn(f'GanttBit {__version__} is already listening on '
+                          f'http://127.0.0.1:{port} (pid {child.pid})', out.getvalue())
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.stdout.close()
 
 
 if __name__ == '__main__':

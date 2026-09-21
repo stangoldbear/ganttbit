@@ -1053,11 +1053,13 @@ def _estimate_chip(project_id, row, in_force):
     value = str(row.get('value', '') or '')
     lines = [line for line in value.strip().split('\n')]
     head, more = lines[0].strip(), len(lines) > 1
+    # Built above the return: an f-string inside an f-string expression with
+    # the same quote is 3.12 syntax, and 3.11 is the floor.
+    title = f' title="{esc(value)}"' if more else ''
     return (
         f'<button type="button" class="badge badge--outline" data-action="estimate-open"'
         f'{attrs(project=project_id, estimate=row.get("id", ""), stage=row.get("stage", ""), note=row.get("note", ""))}'
-        f' data-value="{esc(value)}" data-date="{esc(row.get("date", ""))}"'
-        f'{f' title="{esc(value)}"' if more else ""}>'
+        f' data-value="{esc(value)}" data-date="{esc(row.get("date", ""))}"{title}>'
         f'<span class="chip-when">{esc(row.get("stage", ""))}</span>'
         f'{esc(head)}{" …" if more else ""}'
         f'{" — now" if in_force else ""}</button>'

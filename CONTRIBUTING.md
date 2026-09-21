@@ -29,7 +29,8 @@ f-string expression holding another f-string of the *same quote* is [PEP
 701](https://peps.python.org/pep-0701/), which lands in 3.12. On 3.11 the module
 does not import at all: the application refuses to start and the whole test
 suite fails to load, with a `SyntaxError` pointing at a line that reads
-perfectly well. It has happened once, in `gantt.py`.
+perfectly well. It has happened twice: in `gantt.py`, and again in `view.py` in
+1.4.0, which is why the suite also runs on 3.11 before a change lands.
 
 ```python
 # 3.12 only — an f-string inside an f-string expression, same quote.

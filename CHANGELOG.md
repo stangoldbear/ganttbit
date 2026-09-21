@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## 1.4.2 - 2026-09-21
+
+### Added
+
+- **The terminal says which GanttBit this is.** The first lines printed at
+  startup are a small heading with the version and the build: the commit the
+  tree is checked out at, when there is a repository to read it from. There
+  is no build step, so the commit is the one thing that tells two copies of
+  the same version apart. A zip download has no repository and shows the
+  version alone.
+- **A port that is already taken is named, and can be taken over.** Starting
+  the dashboard on an address and port where a GanttBit is already listening
+  used to end in a traceback and a hunt for the process to stop. It now says
+  which GanttBit is there, with its version and its process id, and asks
+  whether to stop it and start this one in its place. Anything but a yes
+  leaves the other one running and exits with status 1, and nothing on the
+  machine is touched; the same when there is no terminal to answer at, so a
+  copy started from a script never stops another. A port held by something
+  that is not GanttBit is never touched either: it is reported, and the way
+  past it is `--port`. Finding the process is `lsof`'s job, which ships with
+  macOS and with every Linux desktop; without it the other instance is named
+  and left alone.
+
+### Fixed
+
+- The application starts on Python 3.11 again. 1.4.0 wrote an f-string inside
+  an f-string expression with the same quote, which is 3.12 syntax and exactly
+  the trap CONTRIBUTING.md describes, this time in `view.py`. On 3.11 the
+  module did not import, so the dashboard refused to start and the whole test
+  suite failed to load, with a `SyntaxError` on a line that reads perfectly
+  well. The piece is built above the return now, and the suite runs on 3.11
+  as well as 3.12 before a change lands.
+
 ## 1.4.1 - 2026-09-16
 
 ### Fixed

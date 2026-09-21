@@ -46,6 +46,24 @@ your own with `--token` or `[server] token` in `settings.toml`. It is a shared
 secret over plain HTTP, so it keeps strangers on the same Wi-Fi out. On a
 hostile network it is no substitute for TLS.
 
+The first thing printed is a small heading with the version and, when the
+tree is a git checkout, the commit it is at, which is the only build a tool
+with no build step has:
+
+```
+GanttBit 1.4.2 · build 3f9c2a1
+──────────────────────────────
+GanttBit listening on http://127.0.0.1:8099
+```
+
+Start it where a GanttBit is already listening and it says so, with the
+version and the process id of the other one, and asks whether to stop that one
+and take its place. Anything but a yes leaves it running and exits with status
+1, and so does having no terminal to answer at: a copy started from a script
+never stops another. A port held by something that is not GanttBit is never
+touched either; pick another with `--port`. Finding the process is `lsof`'s
+job, which ships with macOS and with every Linux desktop.
+
 ## The chart
 
 The toolbar carries a search, a depth, a zoom and a window. The depth levels
