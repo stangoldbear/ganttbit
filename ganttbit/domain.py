@@ -229,6 +229,46 @@ def used_values(projects, path, declared=()):
     return known
 
 
+# ─── The card as one text ────────────────────────────────────────────────────
+def search_text(project):
+    """
+    Every value the card holds, as one text for the browser to search.
+
+    The chart shows a card a field at a time and the panel only some of them:
+    a search over what is on screen cannot find the notes body, a risk, or
+    the line under an estimate. This is the card flattened, every value under
+    every key in the order the file holds them, the notes body included. Keys
+    are left out — a search is for what was written, not for the format — and
+    so is anything private to the process (`_attachments`), except the body,
+    which is the card's own text and only carries an underscore because the
+    repository hands it over beside the fields. The identifier of a row in a
+    list (`task-1`, `todo-1788000010`) is the format's too: two digits typed
+    into the field would otherwise match every card that ever had a note.
+    """
+    parts = []
+
+    def walk(value, row=False):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key).startswith('_') and key != '_body':
+                    continue
+                if row and key == 'id':
+                    continue
+                walk(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item, row=isinstance(item, dict))
+        elif value is None or isinstance(value, bool):
+            return
+        else:
+            text = str(value).strip()
+            if text:
+                parts.append(text)
+
+    walk(project)
+    return '\n'.join(parts)
+
+
 # ─── The timeline a card declares ────────────────────────────────────────────
 def add_working_days(start, count):
     """

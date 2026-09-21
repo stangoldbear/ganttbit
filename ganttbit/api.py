@@ -12,7 +12,7 @@ import unicodedata
 from datetime import datetime
 
 from . import schema, settings as settings_module
-from .domain import display_group
+from .domain import display_group, search_text
 from .markup import render_markdown
 from .repository import SAFE_ID_RE, csv_to_list, ensure_dict
 
@@ -721,9 +721,26 @@ def dispatch(repository, project_id, action, params, *, now=None):
         result = {}
         repository.mutate(project_id,
                           lambda data: result.update(mutator(data, params, now) or {}))
-        return {'success': True, 'project': project_id, 'action': action, **result}
+        return {'success': True, 'project': project_id, 'action': action,
+                'search': _search_text_of(repository, project_id), **result}
     except schema.ValidationError as exc:
         raise ApiError(str(exc))
+
+
+def _search_text_of(repository, project_id):
+    """
+    The card as one text, for the search index its chart row carries.
+
+    The browser searches the text `gantt._project_row` put on the row, and
+    most edits are patched in place without a reload: without this, a note
+    just deleted would still be found and a note just written would not be.
+    Every mutation answers with the card as it is now.
+    """
+    data, body = repository.load(project_id)
+    if data is None:
+        return ''
+    data['_body'] = body
+    return search_text(data)
 
 
 def _require_project(repository, project_id):

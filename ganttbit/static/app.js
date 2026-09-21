@@ -24,6 +24,7 @@
   var SURFACE_KEY = 'dah_surface';
   var PREFS_KEY = 'dah_prefs';
   var TREE_KEY = 'dah_tree';       // the hierarchy page: tab, level, detail, folds
+  var FILTER_KEY = 'dah_filter';   // the search, how it reads, and the platforms
   var THEME_KEY = 'dah_theme';   // written here, read by theme.js before paint
 
 
@@ -542,13 +543,15 @@
   };
 
   /* ─── Visibility ────────────────────────────────────────────────────────────
-     Three flags, each a class on the row that owns it, and one function that
+     Four flags, each a class on the row that owns it, and one function that
      turns them into `display`. The state used to be read back from `display`
      itself, which cannot survive a collapsed group hiding a project whose own
      collapse has to be remembered, and that is exactly what the depth levels
-     ask of it. */
+     ask of it. The fourth is the filter's: a project it hides keeps every
+     other flag it had, and comes back exactly as it was. */
   var COLLAPSED = 'is-collapsed';
   var OPEN = 'is-open';
+  var FILTERED = 'is-filtered-out';
 
   function groupRow(group) {
     return document.querySelector('.group-row[data-group="' + CSS.escape(group) + '"]');
@@ -556,6 +559,11 @@
 
   function projectRow(pid) {
     return document.querySelector('.project-main-row[data-proj-id="' + CSS.escape(pid) + '"]');
+  }
+
+  /* The project's card in the phone's list. */
+  function projectCard(pid) {
+    return document.querySelector('.pcard[data-project="' + CSS.escape(pid) + '"]');
   }
 
   function groupCollapsed(group) {
@@ -573,16 +581,24 @@
     return !!row && row.classList.contains(OPEN);
   }
 
+  function filteredOut(pid) {
+    var row = projectRow(pid);
+    return !!row && row.classList.contains(FILTERED);
+  }
+
   function applyVisibility() {
     all('.project-main-row').forEach(function (row) {
-      row.style.display = groupCollapsed(row.dataset.groupChild) ? 'none' : '';
+      row.style.display = (groupCollapsed(row.dataset.groupChild) ||
+                           row.classList.contains(FILTERED)) ? 'none' : '';
     });
     all('.resource-sub-row').forEach(function (row) {
       row.style.display = (groupCollapsed(row.dataset.groupChild) ||
-                           projectCollapsed(row.dataset.projChild)) ? 'none' : '';
+                           projectCollapsed(row.dataset.projChild) ||
+                           filteredOut(row.dataset.projChild)) ? 'none' : '';
     });
     all('.detail-row').forEach(function (row) {
-      var shown = row.classList.contains(OPEN) && !groupCollapsed(row.dataset.detailGroup);
+      var shown = row.classList.contains(OPEN) && !groupCollapsed(row.dataset.detailGroup) &&
+                  !filteredOut(row.dataset.projId);
       // A panel adopted by a card in the list is a block, not a table row.
       row.style.display = shown
         ? (row.classList.contains('detail-row--inline') ? 'block' : 'table-row')
@@ -591,6 +607,17 @@
       // rather than as a card that happens to sit between two projects.
       var owner = projectRow(row.dataset.projId);
       if (owner) owner.classList.toggle('has-panel', shown);
+    });
+    // The list on the phone is the same projects: a card follows its row, and
+    // a band with no card left under it is not a heading over nothing.
+    all('.pcard').forEach(function (card) {
+      card.style.display = filteredOut(card.dataset.project) ? 'none' : '';
+    });
+    all('.plist__group').forEach(function (group) {
+      var left = within(group, '.pcard').some(function (card) {
+        return card.style.display !== 'none';
+      });
+      group.style.display = left ? '' : 'none';
     });
     Depth.show();
   }
@@ -784,6 +811,8 @@
         sessionStorage.removeItem(FOCUS_KEY);
       } catch (err) { return; }
       if (!pid || !detailRow(pid)) return;      // another page, or the card is gone
+      // A card you just created is shown, whatever the filter would say.
+      if (filteredOut(pid)) Filters.clearNarrowing();
       setDetail(pid, true);
       syncPanels();
       var target = detailRow(pid);
@@ -871,7 +900,22 @@
   }
 
   function projectApi(pid, action, payload) {
-    return post('/api/project/' + encodeURIComponent(pid) + '/' + action, payload);
+    return post('/api/project/' + encodeURIComponent(pid) + '/' + action, payload)
+      .then(function (result) {
+        // Every mutation answers with the card's text for the search, so an
+        // edit patched in place is found, or stops being found, without a
+        // reload. The filter is re-read after the caller has patched the DOM
+        // (a macrotask runs after the promise chain), so the marks are drawn
+        // on what is there by then.
+        if (result && typeof result.search === 'string') {
+          var row = projectRow(pid);
+          if (row) {
+            row.dataset.search = result.search;
+            setTimeout(function () { Filters.apply(); }, 0);
+          }
+        }
+        return result;
+      });
   }
 
   function attachmentUrl(pid, name) {
@@ -1070,19 +1114,24 @@
     });
   }
 
-  var GROUP_STATES = ['done', 'dropped'];
-
+  /* A status that is one of the bands under the live list — the page says
+     which, in its headings — moves the project to another part of the chart,
+     which is more than a pill can be patched into. It used to be a list of
+     two written here, and INACTIVE, the third band, was not on it: a project
+     set to inactive stayed where it was until the next reload, and the next
+     drag inside the live list sent it up as live, which turned it active
+     again. */
   function movesGroup(pid, status) {
     var row = projectRow(pid);
-    var current = row ? (row.querySelector('.status-pill') || {}).textContent : '';
-    return GROUP_STATES.indexOf(status) !== -1 ||
-      GROUP_STATES.indexOf(String(current || '').toLowerCase()) !== -1;
+    var bands = collectGroups();
+    return bands.indexOf(String(status || '').toLowerCase()) !== -1 ||
+      bands.indexOf(String((row && row.dataset.status) || '').toLowerCase()) !== -1;
   }
 
   /* The name is in four places at once: the chart row, the panel heading, the
      aggregated card, and the title of the card on disk. */
   function renameProject(pid, name) {
-    var row = document.querySelector('.project-main-row[data-proj-id="' + CSS.escape(pid) + '"]');
+    var row = projectRow(pid);
     var title = row && row.querySelector('.project-title');
     if (title) title.textContent = name;
 
@@ -1098,12 +1147,21 @@
   /* The chart row shows the same two signals as the panel: they change together
      or they disagree until the next reload. */
   function refreshProjectRow(pid, payload) {
-    var row = document.querySelector('.project-main-row[data-proj-id="' + CSS.escape(pid) + '"]');
+    var row = projectRow(pid);
     if (!row) return;
-    var status = row.querySelector('.status-pill');
-    if (status && payload.status) {
-      status.textContent = payload.status.toUpperCase();
-      paintPill(status, STATUS_STYLES, payload.status);
+    if (payload.status) {
+      // The stylesheet reads the status off the row and off the card in the
+      // list — a blocked title turns red from there, not from the pill — and
+      // the card has a pill of its own.
+      var card = projectCard(pid);
+      [row, card].filter(Boolean).forEach(function (node) {
+        node.dataset.status = payload.status;
+        var pill = node.querySelector('.status-pill');
+        if (pill) {
+          pill.textContent = payload.status.toUpperCase();
+          paintPill(pill, STATUS_STYLES, payload.status);
+        }
+      });
     }
     var deadline = row.querySelector('.deadline-pill');
     if (deadline && ('deadline_text' in payload)) {
@@ -2683,54 +2741,89 @@
   }
 
   /* ─── Search ────────────────────────────────────────────────────────────────
-     Best effort by agreement: it looks at what the page already shows (titles,
-     people, notes, intros) opens whatever hides a match and marks it. The
-     exhaustive search is the markdown view, which is one document and one
-     ctrl-F. */
-  var SEARCH_IN = '.project-title, .resource-line, .todo-text, .intro-text, ' +
-                  '.global-todo-card__title, .tree__project, .tree__row, .pcard__name';
+     Reads the card, not the page. Every project row carries the whole of its
+     card as text (`data-search`, put there by the server), so a word in the
+     notes body or in a risk is found although the panel never shows it, and
+     a project in a folded band as easily as one on screen. What the page
+     shows on top of that — a note just added, a title just renamed — is read
+     live, because those are patched in place without a reload.
+
+     The words of a query are separate conditions, and the mode says whether
+     all of them must hold or any one is enough. Marks are drawn per matching
+     project, so a word that is in a card the mode rejects is never lit up as
+     if it were a hit. */
+  var SEARCH_IN = '.project-title, .resource-line, .todo-text, ' +
+                  '.intro-text:not(.intro-text--empty), .global-todo-card__title, .pcard__name';
 
   var Search = {
-    marked: [],
+    /* A word of one letter is in every card and would light up everything. */
+    terms: function (query) {
+      return String(query || '').trim().toLowerCase().split(/\s+/)
+        .filter(function (word) { return word.length >= 2; });
+    },
 
+    matches: function (haystack, terms, mode) {
+      var text = String(haystack || '').toLowerCase();
+      var found = function (term) { return text.indexOf(term) !== -1; };
+      return mode === 'or' ? terms.some(found) : terms.every(found);
+    },
+
+    /* Every mark on the page is ours: the server never renders one. Unwrapping
+       them is what clears a search, and unlike a snapshot of the markup it
+       survives a note patched in place since the marks were drawn. */
     clear: function () {
-      this.marked.forEach(function (node) {
-        if (node.__plain !== undefined) {
-          node.innerHTML = node.__plain;
-          delete node.__plain;
+      all('mark').forEach(function (mark) {
+        var parent = mark.parentNode;
+        mark.replaceWith(document.createTextNode(mark.textContent));
+        parent.normalize();
+      });
+    },
+
+    /* Where the needles fall in a text, as [start, end) pairs in order, with
+       overlapping runs merged so a mark never nests inside another. */
+    ranges: function (value, needles) {
+      var lower = value.toLowerCase();
+      var found = [];
+      needles.forEach(function (needle) {
+        var at = lower.indexOf(needle);
+        while (at !== -1) {
+          found.push([at, at + needle.length]);
+          at = lower.indexOf(needle, at + 1);
         }
       });
-      this.marked = [];
+      found.sort(function (a, b) { return a[0] - b[0]; });
+      var merged = [];
+      found.forEach(function (range) {
+        var last = merged[merged.length - 1];
+        if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+        else merged.push(range);
+      });
+      return merged;
     },
 
     /* Wrap every match inside one element, text node by text node: replacing
        the whole innerHTML would rebuild markup the server rendered. */
-    mark: function (node, needle) {
+    mark: function (node, needles) {
       var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
       var texts = [];
       while (walker.nextNode()) texts.push(walker.currentNode);
 
       var hit = false;
       texts.forEach(function (text) {
-        var lower = text.nodeValue.toLowerCase();
-        var at = lower.indexOf(needle);
-        if (at === -1) return;
-        if (!hit) {
-          node.__plain = node.innerHTML;
-          hit = true;
-        }
+        var value = text.nodeValue;
+        var ranges = Search.ranges(value, needles);
+        if (!ranges.length) return;
+        hit = true;
         var fragment = document.createDocumentFragment();
-        var rest = text.nodeValue;
-        var offset = at;
-        while (offset !== -1) {
-          fragment.appendChild(document.createTextNode(rest.slice(0, offset)));
+        var cursor = 0;
+        ranges.forEach(function (range) {
+          fragment.appendChild(document.createTextNode(value.slice(cursor, range[0])));
           var found = document.createElement('mark');
-          found.textContent = rest.slice(offset, offset + needle.length);
+          found.textContent = value.slice(range[0], range[1]);
           fragment.appendChild(found);
-          rest = rest.slice(offset + needle.length);
-          offset = rest.toLowerCase().indexOf(needle);
-        }
-        fragment.appendChild(document.createTextNode(rest));
+          cursor = range[1];
+        });
+        fragment.appendChild(document.createTextNode(value.slice(cursor)));
         text.replaceWith(fragment);
       });
       return hit;
@@ -2746,26 +2839,221 @@
       if (row.dataset.groupChild) setGroup(row.dataset.groupChild, true, false);
       if (row.dataset.projChild) setProject(row.dataset.projChild, true, false);
       if (row.classList.contains('detail-row')) setDetail(row.dataset.projId, true, false);
+    }
+  };
+
+  /* The project a piece of text belongs to: its chart row, one of its people,
+     its panel, its card in the list or its card in the aggregated notes.
+     Nothing for text under no project, which is the inbox. */
+  function projectOfNode(node) {
+    var owner = node.closest('[data-proj-id], [data-proj-child], .pcard, .global-todo-card');
+    if (!owner) return null;
+    if (owner.dataset.projId) return owner.dataset.projId;
+    if (owner.dataset.projChild) return owner.dataset.projChild;
+    if (owner.dataset.project) return owner.dataset.project;
+    var head = owner.querySelector('[data-card]');
+    return head ? head.dataset.card : null;
+  }
+
+  function platformsOf(row) {
+    try { return JSON.parse(row.dataset.platforms || '[]'); }
+    catch (err) { return []; }
+  }
+
+  /* ─── Filters ───────────────────────────────────────────────────────────────
+     What the chart shows of the vault: the search, whether it hides what it
+     does not find, and the platforms. One state, kept per browser like the
+     collapse state, because a save reloads the page and a filter that did
+     not survive it would have to be set again after every edit. No row is
+     ever removed: a project the filter hides carries a class, and
+     `applyVisibility` does the rest, which is what keeps a collapse, a depth
+     level and a filter from fighting over `display`. */
+  var Filters = {
+    state: { query: '', mode: 'and', only: false, platforms: [] },
+
+    load: function () {
+      try {
+        var stored = JSON.parse(localStorage.getItem(FILTER_KEY) || 'null');
+        if (!stored) return;
+        this.state.query = typeof stored.query === 'string' ? stored.query : '';
+        this.state.mode = stored.mode === 'or' ? 'or' : 'and';
+        this.state.only = !!stored.only;
+        this.state.platforms = Array.isArray(stored.platforms)
+          ? stored.platforms.filter(function (name) { return typeof name === 'string'; })
+          : [];
+      } catch (err) { /* defaults */ }
     },
 
-    run: function (query) {
-      this.clear();
-      var needle = String(query || '').trim().toLowerCase();
-      var status = byId('search-count');
-      if (needle.length < 2) {
-        if (status) status.textContent = '';
-        return;
+    save: function () {
+      try { localStorage.setItem(FILTER_KEY, JSON.stringify(this.state)); }
+      catch (err) { /* it still applies to this page */ }
+    },
+
+    /* The field on the chart and the one on the phone's list are one search;
+       the one being typed in is left alone, since its value is the newest.
+       Typing is the one gesture that opens what hides a match: a reload, a
+       switch of mode or a tick leave the folds where they are. */
+    setQuery: function (query, source) {
+      this.state.query = String(query || '');
+      all('[data-change="search"]').forEach(function (field) {
+        if (field !== source && field.value !== Filters.state.query) {
+          field.value = Filters.state.query;
+        }
+      });
+      this.apply({ reveal: true });
+    },
+
+    setMode: function (mode) {
+      this.state.mode = mode === 'or' ? 'or' : 'and';
+      this.apply();
+    },
+
+    setOnly: function (on) {
+      this.state.only = !!on;
+      this.apply();
+    },
+
+    setPlatforms: function (names) {
+      this.state.platforms = names.slice();
+      this.apply();
+    },
+
+    setPlatform: function (name, on) {
+      var chosen = this.state.platforms.filter(function (entry) { return entry !== name; });
+      if (on) chosen.push(name);
+      this.setPlatforms(chosen);
+    },
+
+    /* Everything back: the platforms unticked, *Only matches* off. The search
+       text stays, because a search that only marks its matches hides nothing. */
+    clearNarrowing: function () {
+      this.state.only = false;
+      this.state.platforms = [];
+      this.apply();
+    },
+
+    /* What the page shows of each project on top of its card. A note just
+       added or a title just renamed is patched in place, and the card text
+       the row carries is as old as the last reload. */
+    liveText: function () {
+      var text = {};
+      all(SEARCH_IN).forEach(function (node) {
+        var pid = projectOfNode(node);
+        if (pid) text[pid] = (text[pid] || '') + '\n' + node.textContent;
+      });
+      return text;
+    },
+
+    /* `reveal` opens whatever hides a match — the band, the people, the
+       panel — and is asked for by typing alone: on a reload it would undo
+       every fold the page had just restored, on every load, for as long as
+       the words were remembered. */
+    apply: function (options) {
+      var state = this.state;
+      var reveal = !!(options && options.reveal);
+      var terms = Search.terms(state.query);
+      var searching = terms.length > 0;
+      var rows = all('.project-main-row');
+      Search.clear();
+      var live = searching ? this.liveText() : {};
+      var shown = 0, matched = 0, hit = {};
+
+      rows.forEach(function (row) {
+        var pid = row.dataset.projId;
+        var found = searching &&
+          Search.matches((row.dataset.search || '') + (live[pid] || ''), terms, state.mode);
+        var onPlatform = !state.platforms.length || platformsOf(row).some(function (name) {
+          return state.platforms.indexOf(name) !== -1;
+        });
+        var out = !onPlatform || (state.only && searching && !found);
+        row.classList.toggle(FILTERED, out);
+        if (!out) shown += 1;
+        // A match the platforms have taken away is not counted: the count
+        // beside the field is what a search can show, and never more than
+        // the chart does.
+        if (found && onPlatform) matched += 1;
+        if (found && !out) hit[pid] = true;
+      });
+
+      if (searching) {
+        // A match is a match whether the word sits in the title or in the
+        // notes body the panel never shows: the band that hides the project
+        // opens either way, or *Only matches* would keep a project nobody
+        // could see. Marks are drawn on the text that is on screen.
+        if (reveal) {
+          Object.keys(hit).forEach(function (pid) { Search.reveal(projectRow(pid)); });
+        }
+        all(SEARCH_IN).forEach(function (node) {
+          var pid = projectOfNode(node);
+          // Text under no project — the inbox — lights up on any word. A
+          // hidden project's text is left dark: opening its band for a match
+          // nobody can see is worse than nothing.
+          if (pid && projectRow(pid) && !hit[pid]) return;
+          if (Search.mark(node, terms) && reveal) Search.reveal(node);
+        });
+      }
+      applyVisibility();
+      // A panel opened for a match lives under its card on the phone's list.
+      syncPanels();
+      this.show(rows.length, shown, matched, searching);
+      this.save();
+    },
+
+    /* The controls say what the state is, and the notice says what it costs. */
+    show: function (total, shown, matched, searching) {
+      var state = this.state;
+      var count = byId('search-count');
+      if (count) {
+        count.textContent = !searching ? ''
+          : matched ? matched + ' of ' + total + ' projects' : 'no project matches';
+      }
+      all('#search-mode .tab').forEach(function (tab) {
+        var on = tab.dataset.mode === state.mode;
+        tab.classList.toggle('tab--active', on);
+        tab.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      var only = byId('search-only');
+      if (only) only.setAttribute('aria-pressed', state.only ? 'true' : 'false');
+      all('[data-change="platform-filter"]').forEach(function (box) {
+        box.checked = state.platforms.indexOf(box.value) !== -1;
+      });
+      var badge = byId('platform-filter-count');
+      if (badge) {
+        badge.textContent = state.platforms.length;
+        badge.hidden = !state.platforms.length;
       }
 
-      var self = this;
-      var hits = 0;
-      all(SEARCH_IN).forEach(function (node) {
-        if (!self.mark(node, needle)) return;
-        self.marked.push(node);
-        hits += 1;
-        self.reveal(node);
+      var reasons = [];
+      if (state.platforms.length) reasons.push('platform');
+      if (state.only && searching) reasons.push('the search');
+      var partial = reasons.length > 0 && shown < total;
+      all('.filter-notice').forEach(function (notice) {
+        notice.hidden = !partial;
+        var text = notice.querySelector('.filter-notice__text');
+        if (text && partial) {
+          text.textContent = 'Partial view: ' + shown + ' of ' + total +
+            ' projects, filtered by ' + reasons.join(' and by ') + '.';
+        }
       });
-      if (status) status.textContent = hits ? hits + ' found' : 'nothing found';
+    },
+
+    restore: function () {
+      this.load();
+      // A platform nobody offers any more — the last card carrying it dropped
+      // it, or settings.toml changed — would hide the whole chart with no tick
+      // to remove. Only where the menu is: another page has no menu at all.
+      if (byId('platform-filter')) {
+        var offered = all('[data-change="platform-filter"]').map(function (box) {
+          return box.value;
+        });
+        this.state.platforms = this.state.platforms.filter(function (name) {
+          return offered.indexOf(name) !== -1;
+        });
+      }
+      all('[data-change="search"]').forEach(function (field) {
+        field.value = Filters.state.query;
+      });
+      this.apply();
     }
   };
 
@@ -2811,6 +3099,13 @@
     },
 
     'depth': function (el, data) { Depth.set(data.depth); },
+
+    'search-mode': function (el, data) { Filters.setMode(data.mode); },
+    'search-only': function (el) {
+      Filters.setOnly(el.getAttribute('aria-pressed') !== 'true');
+    },
+    'platform-filter-clear': function () { Filters.setPlatforms([]); },
+    'filter-clear': function () { Filters.clearNarrowing(); },
 
     'todo-add': function (el, data) {
       var textInput = byId('new-todo-text-' + data.project);
@@ -2884,11 +3179,21 @@
     },
 
     'platform-toggle': function (el, data) {
-      el.classList.toggle('active');
+      var pressed = el.classList.toggle('active');
+      el.setAttribute('aria-pressed', pressed ? 'true' : 'false');
       var active = all('#tags-box-' + CSS.escape(data.project) + ' .tag-opt-btn.active')
         .map(function (button) { return button.dataset.platform; });
-      projectApi(data.project, 'update', { platforms: active }).catch(function () {
+      projectApi(data.project, 'update', { platforms: active }).then(function () {
+        // The row carries the list the platform filter reads: it follows the
+        // card, and a filter that is on says so at once.
+        var row = projectRow(data.project);
+        if (row) {
+          row.dataset.platforms = JSON.stringify(active);
+          Filters.apply();
+        }
+      }).catch(function () {
         el.classList.toggle('active');   // optimistic rollback
+        el.setAttribute('aria-pressed', pressed ? 'false' : 'true');
       });
     },
 
@@ -3073,7 +3378,8 @@
   var ChangeActions = {
     'preference': function (el, data) { Prefs.set(data.pref, el.checked); },
     'band': function (el, data) { Band.set(data.band, +el.value); },
-    'search': function (el) { Search.run(el.value); },
+    'search': function (el) { Filters.setQuery(el.value, el); },
+    'platform-filter': function (el) { Filters.setPlatform(el.value, el.checked); },
     'window': function (el) {
       var picker = byId('window-date');
       if (el.value !== 'date') return ChartWindow.go({ from: el.value });
@@ -3261,9 +3567,16 @@
     }
     if (event.target.dataset && event.target.dataset.change === 'search') {
       clearTimeout(searchTimer);
-      var value = event.target.value;
-      searchTimer = setTimeout(function () { Search.run(value); }, 150);
+      var field = event.target;
+      searchTimer = setTimeout(function () { Filters.setQuery(field.value, field); }, 150);
     }
+  });
+
+  /* The platform menu closes when a click lands anywhere outside it. */
+  document.addEventListener('click', function (event) {
+    all('details.filter-menu[open]').forEach(function (menu) {
+      if (!menu.contains(event.target)) menu.open = false;
+    });
   });
 
   document.addEventListener('change', function (event) {
@@ -3278,14 +3591,14 @@
     if (Dialog.open) return Dialog.open(false);
     if (!isHidden(byId('advanced-edit-overlay'))) return closeAdvancedEdit();
     if (!isHidden(byId('settings-overlay'))) return setSettings(false);
+    var menu = document.querySelector('details.filter-menu[open]');
+    if (menu) { menu.open = false; return; }
     var adopted = Object.keys(panelHome)[0];
     if (adopted) return setDetail(adopted, false);
 
-    var cleared = false;
-    all('[data-change="search"]').forEach(function (field) {
-      if (field.value) { field.value = ''; cleared = true; }
-    });
-    if (cleared) Search.run('');
+    clearTimeout(searchTimer);
+    var typed = all('[data-change="search"]').some(function (field) { return !!field.value; });
+    if (typed || Filters.state.query) Filters.setQuery('');
   });
 
   /* ─── Sticky column resize ──────────────────────────────────────────────────
@@ -3728,11 +4041,6 @@
     } catch (err) { /* the pills keep the colour the server gave them */ }
   }
 
-  /* The service worker is written and waiting in static/, deliberately not
-     registered: installability is its own milestone, and a cached shell while
-     the interface is still moving serves yesterday's CSS to today's phone.
-     One line brings it back when that milestone opens. */
-
   document.addEventListener('DOMContentLoaded', function () {
     if (ChartWindow.restore()) return;
     // The collapse state changes the height of the page, so the browser's own
@@ -3744,6 +4052,7 @@
     Prefs.load();
   Band.load();
     UIState.restore();
+    Filters.restore();
     // A window that stops being narrow takes the project list with it, and an
     // adopted panel would go with the list: it goes home first.
     window.addEventListener('resize', syncPanels);

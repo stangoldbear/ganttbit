@@ -31,6 +31,7 @@ from .domain import (
     project_tasks,
     resolve_range,
     resolve_zoom,
+    used_values,
 )
 from .cardmd import NOTES_HEADING
 from .gantt import caret
@@ -545,6 +546,82 @@ _WINDOW_LABELS = {
 }
 
 
+_SEARCH_MODES = (
+    ('and', 'All words', 'Every word must be found in the card'),
+    ('or', 'Any word', 'One word found in the card is enough'),
+)
+
+
+def _search_controls(projects, config):
+    """
+    The search, and what it does to the chart.
+
+    Several words are several conditions, and the switch says whether every
+    one must hold or any one is enough. *Only matches* turns the search from
+    a highlighter into a filter: the projects that do not match leave the
+    chart until the flag is off again or the field is empty. The count beside
+    it says how many projects match, not how many words were found, because a
+    project is what the filter keeps or hides. The browser reads the card
+    text each row carries, so a project in a folded band is found as easily
+    as one on screen.
+    """
+    modes = ''.join(
+        f'<button type="button" class="tab{" tab--active" if key == "and" else ""}" '
+        f'data-action="search-mode" data-mode="{key}" title="{esc(title)}" '
+        f'aria-pressed="{"true" if key == "and" else "false"}">{esc(label)}</button>'
+        for key, label, title in _SEARCH_MODES
+    )
+    return f'''<div class="gantt-search">
+        <input type="search" id="search-field" class="form-input" placeholder="Search projects, people, notes" aria-label="Search the chart" data-change="search">
+        <div class="tabs tabs--sm" id="search-mode" role="group" aria-label="How several words are read">{modes}</div>
+        <button type="button" class="btn btn--outline btn--sm btn--toggle" id="search-only" data-action="search-only" aria-pressed="false" title="Hide the projects the search does not find">Only matches</button>
+        {_platform_filter(projects, config)}
+        <span class="gantt-search__count" id="search-count" role="status"></span>
+      </div>'''
+
+
+def _platform_filter(projects, config):
+    """
+    Show only the projects on some platforms.
+
+    The list is the open vocabulary the form suggests: what `settings.toml`
+    names, then every tag a card in the vault already carries, so a tag typed
+    once can be filtered on. A project stays when it touches any of the ticked
+    platforms — ticking iOS and Android asks for the mobile work, not for the
+    projects that touch both — and a project that names no platform at all
+    leaves with the first tick.
+    """
+    names = used_values(projects, 'tech_footprint.platforms', config.platforms)
+    options = ''.join(
+        f'<label class="filter-menu__option"><input type="checkbox" '
+        f'data-change="platform-filter" value="{esc(name)}">{esc(name)}</label>'
+        for name in names
+    ) or '<span class="editable-empty">No card names a platform yet.</span>'
+    return f'''<details class="filter-menu" id="platform-filter">
+        <summary class="btn btn--outline btn--sm" title="Show only the projects on these platforms">Platforms<span class="badge" id="platform-filter-count" hidden></span>{caret()}</summary>
+        <div class="filter-menu__panel">
+          {options}
+          <button type="button" class="btn btn--ghost btn--sm" data-action="platform-filter-clear">Clear</button>
+        </div>
+      </details>'''
+
+
+def _filter_notice():
+    """
+    Said once, above the rows: what is on screen is not the whole vault.
+
+    A filter that hides a project is easy to forget and easy to mistake for a
+    project that is gone. The browser fills the line in — how many are shown,
+    and what is hiding the rest — and the button puts everything back: the
+    platforms unticked, *Only matches* off. The search text stays, because a
+    search that only marks its matches hides nothing.
+    """
+    return (f'<div class="filter-notice" role="status" hidden>'
+            f'<span class="filter-notice__text"></span>'
+            f'<button type="button" class="btn btn--outline btn--sm" data-action="filter-clear">'
+            f'{icon("level-details")}Show all</button></div>')
+
+
 def _depth_switch(action='depth', dom_id='depth-switch'):
     """
     Three levels, not four toggles.
@@ -651,9 +728,9 @@ def _shell(config, *, timeline, header_side, content, overlays='', zoom=''):
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="{esc(config.title)}">
   {_css_variables(timeline, config)}
-  <link rel="stylesheet" href="/static/app.css">
-  <link rel="stylesheet" href="/static/themes.css">
-  <script src="/static/theme.js"></script>
+  <link rel="stylesheet" href="/static/app.css?v={esc(__version__)}">
+  <link rel="stylesheet" href="/static/themes.css?v={esc(__version__)}">
+  <script src="/static/theme.js?v={esc(__version__)}"></script>
 </head>
 <body>
 <div class="container" data-shell="{"chart" if timeline is not None else "page"}" data-zoom="{esc(zoom)}" data-months="{esc(",".join(config.months))}" data-status-styles="{esc(json.dumps(settings_module.STATUS_STYLES))}" data-deadline-styles="{esc(json.dumps(settings_module.DEADLINE_STYLES))}">
@@ -773,7 +850,7 @@ def _shell(config, *, timeline, header_side, content, overlays='', zoom=''):
 </div>
 <div id="toast-host"></div>
 {overlays}
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={esc(__version__)}"></script>
 </body>
 </html>'''
 
@@ -848,16 +925,14 @@ def render_page(projects, *, window='', zoom='', today=None, settings=None):
 
   <div class="gantt-box" data-surface="chart">
     <div class="gantt-toolbar">
-      <div class="gantt-search">
-        <input type="search" id="search-field" class="form-input" placeholder="Search projects, people, notes" aria-label="Search the chart" data-change="search">
-        <span class="gantt-search__count" id="search-count"></span>
-      </div>
+      {_search_controls(projects, config)}
       <div class="gantt-toolbar__actions">
         {_depth_switch()}
         {_zoom_switch(zoom_key)}
         {_window_switch(window_key)}
       </div>
     </div>
+    {_filter_notice()}
     {chart}
   </div>"""
 
@@ -1009,6 +1084,7 @@ def _project_list(projects, timeline, settings, today):
     <input type="search" class="form-input" placeholder="Search projects, people, notes" aria-label="Search" data-change="search">
     {_new_project_button(icon_only=True)}
   </div>
+  {_filter_notice()}
   {body}
 </div>'''
 

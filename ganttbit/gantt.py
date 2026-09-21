@@ -11,6 +11,8 @@ stylesheet decides how much of it to spend (a rail and a tint), and the
 timeline lane beside it never takes it at all.
 """
 
+import json
+
 from . import settings as settings_module
 from .domain import (
     band_position,
@@ -23,8 +25,9 @@ from .domain import (
     project_milestones,
     project_span,
     project_tasks,
+    search_text,
 )
-from .markup import attrs, esc, icon
+from .markup import attrs, ensure_list, esc, icon
 
 def caret(open_state=True):
     """The one collapse glyph: an SVG chevron, turned by CSS when it closes."""
@@ -261,10 +264,23 @@ def _project_row(project, group, at, rows_of_project, timeline, config):
     warning = _warning(any(task['outside'] for task in rows_of_project),
                        'A task on this project falls outside the span it declares')
 
+    # What the browser filters on travels with the row, escaped: the platforms
+    # as a list, and the whole card as one text, so a search reaches the notes
+    # body and a risk that the panel never shows, and a project in a collapsed
+    # band as easily as one on screen. The platform tags themselves left the
+    # chart entirely; the detail panel lists them.
+    # Spelled the way the menu spells them (`domain.used_values`): as text,
+    # trimmed, and never empty, so a tick in the menu and a tag on the card
+    # compare equal.
+    platforms = [str(item).strip()
+                 for item in ensure_list((project.get('tech_footprint') or {}).get('platforms'))
+                 if str(item).strip()]
+    filter_data = (f' data-platforms="{esc(json.dumps(platforms))}"'
+                   f' data-search="{esc(search_text(project))}"')
+
     # One line: identity, then the two things that change (status, deadline),
     # then the row actions, which only appear on hover or keyboard focus.
-    # The platform tags left the chart entirely; the detail panel lists them.
-    return f'''<tr class="project-main-row" data-group-child="{esc(group)}" data-proj-id="{esc(project_id)}" data-status="{esc(status)}" style="--at:{at:.2f}%" draggable="true">
+    return f'''<tr class="project-main-row" data-group-child="{esc(group)}" data-proj-id="{esc(project_id)}" data-status="{esc(status)}"{filter_data} style="--at:{at:.2f}%" draggable="true">
   <td class="sticky-col project-cell">
     <div class="project-line project-line--head">
       <div class="project-identity">

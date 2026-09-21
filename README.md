@@ -51,7 +51,7 @@ tree is a git checkout, the commit it is at, which is the only build a tool
 with no build step has:
 
 ```
-GanttBit 1.4.2 · build 3f9c2a1
+GanttBit 1.5.0 · build 3f9c2a1
 ──────────────────────────────
 GanttBit listening on http://127.0.0.1:8099
 ```
@@ -78,6 +78,21 @@ from a date you pick. The choice travels in the URL (`?from=…`) and is
 remembered per browser, and so is everything you collapsed, opened and scrolled
 to: a save reloads the page and puts you back where you were, including the
 chart's own horizontal position.
+
+**The search reads the whole card**, not only what the chart shows: the title,
+the people and the notes, but also the risks, the estimates, the Jira keys and
+the `## Notes` body — and in every band, so a project that is inactive, done
+or dropped is found as easily as one in flight, and the band it sits in opens
+to show it. Several words are several conditions: **All words** keeps the
+projects that hold every one of them, **Any word** the projects that hold at
+least one. The search marks what it finds and hides nothing until **Only
+matches** is on, which turns it into a filter. **Platforms** filters the chart
+to the projects on the platforms you tick — any of them, so iOS and Android
+together is the mobile work — and offers every platform the vault names, the
+ones from `settings.toml` and the ones typed since. Whenever a filter hides a
+project, a line above the rows says how many are shown and what is hiding the
+rest, and **Show all** puts everything back. The words, the mode, the flag and
+the platforms are remembered per browser, like the rest of the view.
 
 **Settings**, the button in the footer, holds four groups: the theme (System,
 Light, Dark, or one of twenty-three palettes borrowed from well-known editors

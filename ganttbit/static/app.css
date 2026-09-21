@@ -290,9 +290,11 @@ textarea { width: 100%; resize: vertical; line-height: 1.5; padding: 8px; }
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
   margin-bottom: 10px; flex-wrap: wrap;
 }
-.gantt-search { display: flex; align-items: center; gap: 8px; }
-.gantt-search .form-input { width: 260px; }
-.gantt-search__count { font-size: 11px; color: hsl(var(--muted-foreground)); }
+/* Sized so the toolbar stays on one line at 1280px beside the depth, the zoom
+   and the window: the field holds a few words, which is what a search is. */
+.gantt-search { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gantt-search .form-input { width: 180px; }
+.gantt-search__count { font-size: 11px; color: hsl(var(--muted-foreground)); white-space: nowrap; }
 /* A count with nothing to say is not an item: left in the flow it reserves the
    flex gap beside it, and the field beside it stops 8px short of everything
    else on the page. */
@@ -300,6 +302,47 @@ textarea { width: 100%; resize: vertical; line-height: 1.5; padding: 8px; }
 mark {
   background: hsl(var(--warning) / .3); color: inherit;
   border-radius: 2px; padding: 0 1px;
+}
+/* A button that is on or off, like a platform tag: pressed reads as pressed. */
+.btn--toggle[aria-pressed="true"] {
+  background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground));
+  border-color: hsl(var(--foreground) / .35); font-weight: 600;
+}
+
+/* ─── The platform menu ───────────────────────────────────────────────────────
+   A disclosure that reads as a button, with the platforms as checkboxes under
+   it. Above the chart's own sticky pieces (the resize handle sits at 20). */
+.filter-menu { position: relative; }
+.filter-menu > summary { list-style: none; gap: 5px; }
+.filter-menu > summary::-webkit-details-marker { display: none; }
+.filter-menu > summary .caret { transform: rotate(180deg); }
+.filter-menu[open] > summary .caret { transform: none; }
+.filter-menu__panel {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+  min-width: 200px; max-width: calc(100cqw - 16px); padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+  background: hsl(var(--popover)); color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border)); border-radius: var(--radius);
+  box-shadow: 0 8px 24px hsl(var(--foreground) / .12);
+}
+.filter-menu__option {
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px;
+  border-radius: calc(var(--radius) - 4px); font-size: 12px; cursor: pointer;
+  white-space: nowrap;
+}
+.filter-menu__option:hover { background: hsl(var(--accent)); }
+.filter-menu__option input { margin: 0; }
+.filter-menu__panel > .btn { align-self: flex-start; margin-top: 4px; }
+
+/* ─── The partial view ────────────────────────────────────────────────────────
+   Said once, over the rows: what is on screen is not the whole vault, and the
+   way back is beside it. A signal, so it takes the warning hue. */
+.filter-notice {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap; margin-bottom: 10px; padding: 6px 10px;
+  border: 1px solid hsl(var(--warning) / .45); border-left: 3px solid hsl(var(--warning));
+  border-radius: calc(var(--radius) - 2px); background: hsl(var(--warning) / .1);
+  font-size: 12px;
 }
 .gantt-toolbar__actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .window-switch { display: flex; align-items: center; gap: 6px; }
@@ -1257,6 +1300,7 @@ input[type="checkbox"] { accent-color: hsl(var(--primary)); }
 
   .gantt-toolbar { flex-direction: column; align-items: stretch; gap: 6px; }
   .gantt-search .form-input { width: 100%; }
+  .filter-notice { margin: 0 0 8px; }
   .gantt-toolbar__actions { gap: 4px; }
   .gantt-toolbar__actions .btn { flex: 1 1 auto; }
 
@@ -1533,6 +1577,7 @@ input[type="checkbox"] { accent-color: hsl(var(--primary)); }
   .project-line--head .btn--icon, .group-row__inner .btn--icon { width: 44px; height: 44px; }
   .tab { min-height: 40px; }
   .tag-opt-btn { min-height: 44px; padding: 0 14px; }
+  .filter-menu__option { min-height: 44px; }
   .todo-check { min-width: 44px; min-height: 44px; margin: -6px 0 -6px -6px; }
   .todo-item-row input[type="checkbox"] { width: 22px; height: 22px; }
   .todo-item-row { min-height: 44px; align-items: center; }

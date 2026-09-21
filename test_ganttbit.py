@@ -35,7 +35,7 @@ from ganttbit.domain import (
     Timeline, band_position, chart_spans, declared_span, display_group,
     format_date_long, format_relative, group_by_display, is_closed_group,
     latest_estimate, project_estimates, project_milestones, project_span,
-    project_tasks, resolve_person, resolve_range,
+    project_tasks, resolve_person, resolve_range, search_text,
 )
 from ganttbit.cardmd import build_card, parse_card
 from ganttbit.migrate import (
@@ -789,10 +789,48 @@ class DomainTest(unittest.TestCase):
     def test_a_status_is_the_only_thing_that_files_a_project(self):
         self.assertEqual(display_group({'status': 'done'}, self.settings), 'done')
         self.assertEqual(display_group({}, self.settings), 'live')
+    def test_the_card_reads_as_one_text_for_the_search(self):
+        """The panel shows some fields; the search has to reach all of them."""
+        card = next(p for p in self.projects if p['id'] == 'project-2-eco-labels')
+        text = search_text(card)
+        self.assertTrue(text.startswith('Eco labels & durability sheet\nproject-2-eco-labels'))
+        for value in ('blocked', 'Waiting for the legal text', 'Enrico Fermi',
+                      'Regulatory deadline cannot move',            # a risk
+                      'NIMBUS-1088', 'Chase the 4 missing translations',
+                      'stakeholder-mary-jackson',                   # a value that looks like an id
+                      'Reassess at the next steering committee'):   # the notes body
+            self.assertIn(value, text)
+        # Values, never keys: a search is for what was written.
+        self.assertNotIn('risks_and_criticalities', text)
+        self.assertNotIn('deadline_type', text)
+        # The identifier of a row is the format's, not the author's.
+        self.assertNotIn('task-1', text)
+        self.assertNotIn('RISK-01', text)
+        self.assertNotIn('todo-project-2-eco-labels-1-1788000010', text)
+
+    def test_the_search_text_leaves_out_what_is_private_to_the_process(self):
+        card = {'id': 'x', 'name': 'Name', 'flag': True, 'gone': None,
+                '_attachments': [{'name': 'secret.pdf', 'size': 12}],
+                '_body': 'the body',
+                'nested': {'_private': 'hidden', 'items': ['a', None, 3, '  ']}}
+        self.assertEqual(search_text(card), 'x\nName\nthe body\na\n3')
 
 
 class SchemaAndApiTest(VaultTestCase):
     PROJECT = 'project-1-navigation-menu'
+
+    def test_every_mutation_answers_with_the_card_as_text_for_the_search(self):
+        """The row's search index is patched from this, not reloaded."""
+        added = dispatch(self.repo, self.PROJECT, 'todo/add',
+                         {'text': 'Chase the compliance copy deck'}, now=NOW)
+        self.assertIn('Chase the compliance copy deck', added['search'])
+        self.assertTrue(added['search'].startswith('Navigation menu'))
+        removed = dispatch(self.repo, self.PROJECT, 'todo/delete',
+                           {'todo_id': added['todo']['id']}, now=NOW)
+        self.assertNotIn('Chase the compliance copy deck', removed['search'])
+        # The notes body travels too: it is the part the panel never shows.
+        raw = self.repo.read_raw(self.PROJECT)
+        self.assertIn(raw.split('## Notes')[1].strip().split('\n')[0], removed['search'])
 
     def test_invalid_status_is_rejected_before_it_reaches_the_file(self):
         with self.assertRaises(ApiError) as caught:
@@ -1640,7 +1678,10 @@ class ViewTest(unittest.TestCase):
         # No external asset: everything the head names is served from /static/.
         self.assertNotIn('href="http', head)
         self.assertNotIn('src="http', head)
-        self.assertIn('<script src="/static/theme.js">', head)   # before the first paint
+        # Before the first paint, and asking for the script of this very
+        # version: the shell is cached first, and a page that named the bare
+        # file would open once on the previous release's script.
+        self.assertIn(f'<script src="/static/theme.js?v={__version__}">', head)
 
     def test_the_logo_is_one_drawing_shown_twice(self):
         """The header and the docs page carry the same files, byte for byte."""
@@ -1708,6 +1749,52 @@ class ViewTest(unittest.TestCase):
                          'https://other.test/x')
         self.assertEqual(markup.join_url('', 'https://other.test/x'),
                          'https://other.test/x')
+    def test_every_row_carries_what_the_browser_filters_on(self):
+        """The platforms as a list and the whole card as text, both escaped."""
+        row = re.search(r'<tr class="project-main-row"[^>]*data-proj-id="project-2-eco-labels"[^>]*>',
+                        self.html).group(0)
+        self.assertIn('data-platforms="[&quot;iOS&quot;, &quot;Android&quot;, &quot;Content&quot;]"', row)
+        self.assertIn('data-search="Eco labels &amp; durability sheet\nproject-2-eco-labels', row)
+        self.assertIn('Reassess at the next steering committee', row)       # the notes body
+        # A project that names no platform says so with an empty list, not with nothing.
+        blank = re.search(r'<tr class="project-main-row"[^>]*data-proj-id="project-4-analytics-migration"[^>]*>',
+                          self.html).group(0)
+        self.assertIn('data-platforms="[]"', blank)
+
+    def test_a_platform_on_the_row_is_spelled_as_the_menu_spells_it(self):
+        """A tick in the menu and a tag on the card have to compare equal."""
+        card = {'id': 'x', 'name': 'X', 'tech_footprint': {'platforms': [' iOS ', 42, '', '  ']}}
+        html = view.render_page(self.projects + [card], today=TODAY, settings=self.settings)
+        row = re.search(r'<tr class="project-main-row"[^>]*data-proj-id="x"[^>]*>', html).group(0)
+        self.assertIn('data-platforms="[&quot;iOS&quot;, &quot;42&quot;]"', row)
+
+    def test_the_toolbar_offers_the_search_modes_and_the_only_matches_flag(self):
+        self.assertIn('data-action="search-mode" data-mode="and"', self.html)
+        self.assertIn('data-action="search-mode" data-mode="or"', self.html)
+        self.assertIn('id="search-only" data-action="search-only" aria-pressed="false"', self.html)
+
+    def test_the_toolbar_filters_on_every_platform_the_vault_uses(self):
+        extra = {'id': 'x-web', 'name': 'Web thing',
+                 'tech_footprint': {'platforms': ['Web <beta>']}}
+        html = view.render_page(self.projects + [extra], today=TODAY, settings=self.settings)
+        menu = re.search(r'<details class="filter-menu" id="platform-filter">.*?</details>',
+                         html, re.S).group(0)
+        offered = re.findall(r'data-change="platform-filter" value="([^"]*)"', menu)
+        # The declared vocabulary first, then what only the vault knows, escaped.
+        self.assertEqual(offered, list(self.settings.platforms) + ['Web &lt;beta&gt;'])
+        self.assertIn('data-action="platform-filter-clear"', menu)
+
+    def test_the_partial_view_notice_sits_over_the_chart_and_over_the_list(self):
+        """Hidden until the browser has something to say, with the way back beside it."""
+        notice = r'<div class="filter-notice" role="status" hidden>.*?</div>'
+        self.assertEqual(len(re.findall(notice, self.html)), 2)
+        # One between the toolbar and the rows, one under the field of the list.
+        chart = self.html[self.html.index('<div class="gantt-box"'):self.html.index('<div class="gantt-scroll"')]
+        self.assertRegex(chart, r'(?s)gantt-toolbar__actions.*?' + notice)
+        plist = self.html[self.html.index('<div class="plist"'):self.html.index('<section class="plist__group">')]
+        self.assertRegex(plist, r'(?s)plist__search.*?' + notice)
+        for found in re.findall(notice, self.html):
+            self.assertIn('data-action="filter-clear"', found)
 
 
 class TokenTest(VaultTestCase):

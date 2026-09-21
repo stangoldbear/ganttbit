@@ -4,6 +4,71 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## 1.5.0 - 2026-09-21
+
+### Added
+
+- **The search reads the whole card, in every band.** It used to look at what
+  the page showed — titles, people, notes, intros — and the panel shows only
+  some of a card, so a risk, an estimate's note, a Jira key or the `## Notes`
+  body could not be found at all. Every project row now carries its card as
+  text, and the search reads that: a word in the notes body of a dropped
+  project is found, and typing it opens the band the project sits in. Every
+  save answers with the card as it is, so the row's text follows an edit
+  made in place without a reload: a note just deleted stops being found, a
+  note just written is.
+- **Several words, all or any.** The words of a query are separate
+  conditions. *All words* keeps the projects that hold every one of them,
+  *Any word* the projects that hold at least one, and the count beside the
+  field says how many projects match rather than how many words were found.
+  Marks are drawn only inside the projects the mode accepts, so a word that
+  is in a card the mode rejects is never lit up as if it were a hit.
+- **Only matches.** A flag beside the search that turns it from a
+  highlighter into a filter: the projects the search does not find leave the
+  chart, and the list on a phone, until it is switched off or the field is
+  emptied. Their rows are hidden, never removed, so a collapse, a depth level
+  and the filter never fight over the same row.
+- **A platform filter.** *Platforms* in the toolbar is a menu of checkboxes:
+  every platform `settings.toml` names, then every one a card in the vault
+  already carries. Tick some and the chart keeps the projects on any of them
+  — iOS and Android together is the mobile work, not the projects that touch
+  both — and a project that names no platform leaves with the first tick.
+  Ticking a platform in a project's panel is read by the filter at once.
+- **A partial view says so.** Whenever a filter hides a project, a line over
+  the rows — and over the list on a phone — says how many of the projects are
+  shown and what is hiding the rest, with *Show all* beside it, which unticks
+  the platforms and switches *Only matches* off. The search text stays,
+  because a search that only marks its matches hides nothing. The words, the
+  mode, the flag and the platforms are remembered per browser, like the
+  collapse state, so a save that reloads the page comes back filtered as it
+  was — with its folds where they were: typing is what opens a band that
+  hides a match, a reload does not. A card just created is shown whatever
+  the filter would say, and a remembered platform that no card names any
+  more is dropped rather than left hiding the whole chart with no tick to
+  remove.
+
+### Fixed
+
+- Setting a project to `inactive` from its panel moves it to the INACTIVE
+  band at once, as `done` and `dropped` already did. The band list the
+  browser checked a status change against was written down as two, before
+  INACTIVE became a band: the row stayed in the live list until the next
+  reload, and the next drag inside the list sent it up as live, which turned
+  it `active` again without anyone asking. The bands the page draws are what
+  a status change is checked against now.
+- A status changed in the panel reaches the row and the card at once: a
+  project set to `blocked` turns red in the list without a reload, and the
+  pill on its card on a phone changes with it, instead of both waiting for
+  the next reload.
+- A platform toggle in the panel says whether it is pressed to a screen
+  reader, not only to the eye.
+- The first page after an upgrade opens on the script and stylesheet of
+  that upgrade. The shell is cached first and revalidated behind the page,
+  which is what makes it paint at once, and it handed the previous release's
+  `app.js` to the new page exactly once: every action the new page named
+  was unregistered until the next load. The page now asks for the assets of
+  its own version, which the cache has never seen.
+
 ## 1.4.2 - 2026-09-21
 
 ### Added
