@@ -70,9 +70,16 @@ The toolbar carries a search, a depth, a zoom and a window. The depth levels
 are **Compact**, **Projects**, **Stakeholders** and **All details**: absolute
 levels rather than toggles, so each one does the same thing whatever is folded
 right now. **Compact** is one line per project, the drag handle, the number,
-the name and its span bar, which is a third shorter than a normal row. The
-zoom is **Day**, **Week** or **Month**; a column is always a working day, and
-the zoom decides how wide it is drawn. The window is what the chart is drawn
+the name and its span bar, which is a third shorter than a normal row.
+**Projects** adds the status, the deadline and the platforms the project
+touches, as tags. **Stakeholders** unfolds the people under it, and the last
+line under them adds one, opening the row dialog on the project's own span, so
+a project with nobody on it yet still unfolds to something. **All details**
+opens the notes and actions of every project as well. Every row carries the
+same four levels at its right end, shown on hover beside *Edit*, for that one
+project; the toolbar's switch points at a level only when every row is at it.
+The zoom is **Day**, **Week** or **Month**; a column is always a working day,
+and the zoom decides how wide it is drawn. The window is what the chart is drawn
 through: from today, the last 30 days, this year, all dates, or
 from a date you pick. The choice travels in the URL (`?from=…`) and is
 remembered per browser, and so is everything you collapsed, opened and scrolled
@@ -131,21 +138,39 @@ A note that belongs to no project yet goes in the **Inbox**, the first card of
 the aggregated list: write it there and it lands in `inbox.md`, a card like any
 other on disk, which the chart and the project count leave out.
 
+A note is a line of text first, and may also carry a **title**, shown in bold
+above it, **owners** and **tags**, shown as chips under it, and a due date.
+Owners are offered from the roster in `settings.toml` and from every name typed
+since, tags from every tag typed, and a note due today or tomorrow, or already
+overdue, carries an alert to the left of its text. **Actions & notes** reads
+the open notes three ways: in the order the cards list them, which is the order
+they were written or dragged to, or by due date, soonest or latest first, a
+note with no date last either way; narrowed to the notes of the owners you
+tick; and **By owner**, one section per person across every project, each note
+with its project's name, a note with two owners under both. The three are
+remembered per browser, like the chart's own filters.
+
 **New project** in the header asks, in one overlay, for what somebody has in
 their head when a project turns up: the name, whether it has started, the span
 the bar is drawn from, the deadline the chart badge shows, the platforms, the
 QA effort, the Jira request and the Confluence pages — those two usually exist
-before any analysis does — and why it exists, as markdown, so *Why* and *Scope*
-are headings if that is how you write them. The name is the only answer
-required, and every field left empty is left out of the card rather than
-written empty: created with a name alone, the card is the five lines it was
-before. It comes back with the new card's panel open.
+before any analysis does — why it exists, as markdown, so *Why* and *Scope*
+are headings if that is how you write them, and the people on it: a table of
+timeline rows, who, when and what, with *Add row* under it. The name is the
+only answer required, and every field left empty is left out of the card
+rather than written empty: created with a name alone, the card is the five
+lines it was before. It comes back with the new card's panel open.
 
-The same form edits a card that exists: the pencil on a chart row opens it on
-that project, and **Advanced edit** at its corner hands the card over to the
-full editor, which hands it back the same way. Two views of one card, never two
-sources for it, so the way over reloads from the file rather than carrying half
-a form with it.
+The same form edits a card that exists, and it is the one **Edit** a project
+has: the pencil on its chart row, and *Edit* in its panel. The rows it lists
+are the card's, one per line, and a row written as a start and a count of
+working days opens on the end the chart draws and is written back as two dates;
+the columns the form does not show, `days` and `flags`, survive the save.
+**Advanced edit** at the form's corner hands the card over to the full editor,
+which hands it back the same way, and is reached from there and nowhere else.
+Two views of one card, never two sources for it, so the way over reloads from
+the file rather than carrying half a form with it. No row table in either form
+asks for an id: a new row is given one when it is saved, the way a note is.
 
 **Estimates are a history, not a number.** A project is sized more than once —
 roughly by the architects before it reaches anyone, refined in the preview

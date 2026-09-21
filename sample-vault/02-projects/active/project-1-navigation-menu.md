@@ -143,15 +143,28 @@
   - https://www.figma.com/design/aaaa2222/Menu-motion
 - todos
   - todo-project-1-navigation-menu-1-1788000000
+    - title: API contract
     - text: Confirm the API contract with the backend platform team
     - deadline: 2026-09-18
+    - owners
+      - Ada Lovelace
+      - Grace Hopper
+    - tags
+      - backend
+      - contract
   - todo-project-1-navigation-menu-2-1788000001
     - text: Ask design for the empty-state of the third level
     - deadline:
+    - owners
+      - Mary Jackson
+    - tags
+      - design
 - done
   - todo-project-1-navigation-menu-3-1787000000
     - text: Kick-off with both mobile squads
     - deadline: 2026-08-26
+    - owners
+      - Mary Jackson
     - completed_at: 2026-08-26 17:40
 
 ## Notes

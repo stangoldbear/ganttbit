@@ -25,6 +25,7 @@
   var PREFS_KEY = 'dah_prefs';
   var TREE_KEY = 'dah_tree';       // the hierarchy page: tab, level, detail, folds
   var FILTER_KEY = 'dah_filter';   // the search, how it reads, and the platforms
+  var NOTES_KEY = 'dah_notes';     // the aggregated notes: the order, whose, grouped
   var THEME_KEY = 'dah_theme';   // written here, read by theme.js before paint
 
 
@@ -482,6 +483,7 @@
           globalTodosCollapsed: isHidden(byId('global-todos-content')),
           collapsedGroups: [],
           collapsedProjects: [],
+          compactProjects: [],
           openDetailPanels: [],
           openHistories: []
         };
@@ -495,6 +497,9 @@
         all('.project-main-row').forEach(function (row) {
           if (row.dataset.projId && row.classList.contains(COLLAPSED)) {
             state.collapsedProjects.push(row.dataset.projId);
+          }
+          if (row.dataset.projId && row.classList.contains(COMPACT)) {
+            state.compactProjects.push(row.dataset.projId);
           }
         });
 
@@ -532,6 +537,10 @@
         if (row) row.classList.add(COLLAPSED);
         setCaret(byId('btn-toggle-proj-' + pid), false);
       });
+      (state.compactProjects || []).forEach(function (pid) {
+        var row = projectRow(pid);
+        if (row) row.classList.add(COMPACT);
+      });
       (state.openDetailPanels || []).forEach(function (pid) {
         var panel = detailRow(pid);
         if (panel) panel.classList.add(OPEN);
@@ -552,6 +561,9 @@
   var COLLAPSED = 'is-collapsed';
   var OPEN = 'is-open';
   var FILTERED = 'is-filtered-out';
+  /* Compact is the level under Projects, and a class on the row: the
+     stylesheet stops drawing what a ranked reading does not need. */
+  var COMPACT = 'is-compact';
 
   function groupRow(group) {
     return document.querySelector('.group-row[data-group="' + CSS.escape(group) + '"]');
@@ -579,6 +591,11 @@
   function detailOpen(pid) {
     var row = detailRow(pid);
     return !!row && row.classList.contains(OPEN);
+  }
+
+  function projectCompact(pid) {
+    var row = projectRow(pid);
+    return !!row && row.classList.contains(COMPACT);
   }
 
   function filteredOut(pid) {
@@ -711,11 +728,20 @@
     if (persist !== false) UIState.save();
   }
 
+  /* Compact is less than Projects: anything that unfolds a row further, its
+     people or its panel, takes the row out of Compact first. */
+  function setCompact(pid, on, persist) {
+    var row = projectRow(pid);
+    if (row) row.classList.toggle(COMPACT, on);
+    if (persist !== false) UIState.save();
+  }
+
   /* Collapsing a project folds away its people. The project row stays, and so
      does its panel: closing a panel is what the Close button is for. */
   function setProject(pid, open, persist) {
     var row = projectRow(pid);
     if (row) row.classList.toggle(COLLAPSED, !open);
+    if (open) setCompact(pid, false, false);
     setCaret(byId('btn-toggle-proj-' + pid), open);
     applyVisibility();
     if (persist !== false) UIState.save();
@@ -725,6 +751,7 @@
     var panel = detailRow(pid);
     if (!panel) return;
     panel.classList.toggle(OPEN, open);
+    if (open) setCompact(pid, false, false);
     if (!open) returnPanel(pid);
     // A panel is useless inside a collapsed group: opening one opens the band
     // it lives in, and nothing else.
@@ -752,45 +779,61 @@
   }
 
   /* ─── Depth ─────────────────────────────────────────────────────────────────
-     Three levels rather than four toggles. A toggle has to know what the chart
+     Four levels rather than four toggles. A toggle has to know what the chart
      is doing right now, which is unanswerable when half of it is folded; a
-     level always means the same thing and always does it. */
+     level always means the same thing and always does it. The toolbar sets
+     every project to one level; the switch on a row sets that row alone, and
+     the two read the same state: a row is at exactly one level, and the
+     toolbar points at a level only when every row is at it. */
   var Depth = {
+    /* One project at one level. A level says everything about the state,
+       people and panel included: that is what makes it work the same
+       whatever was open before it. Compact folds like Projects and then asks
+       the stylesheet for less. */
+    setProject: function (pid, level, persist) {
+      setCompact(pid, level === 'compact', false);
+      setProject(pid, level === 'people' || level === 'details', false);
+      setDetail(pid, level === 'details', false);
+      if (persist !== false) UIState.save();
+    },
+
     set: function (level) {
-      var peopleOpen = level === 'people' || level === 'details';
-      var panelsOpen = level === 'details';
-      // Compact is the stylesheet's doing: the rows stay exactly as they are.
-      document.documentElement.toggleAttribute('data-compact', level === 'compact');
       collectGroups().forEach(function (group) { setGroup(group, true, false); });
-      collectProjects().forEach(function (pid) {
-        setProject(pid, peopleOpen, false);
-        // A level says everything about the state, panels included: that is
-        // what makes it work the same whatever was open before it.
-        setDetail(pid, panelsOpen, false);
-      });
+      collectProjects().forEach(function (pid) { Depth.setProject(pid, level, false); });
       UIState.save();
+    },
+
+    levelOf: function (pid) {
+      if (projectCompact(pid)) return 'compact';
+      if (projectCollapsed(pid)) return 'projects';
+      return detailOpen(pid) ? 'details' : 'people';
     },
 
     /* What the chart is showing, for the control to point at, and nothing at
        all when it is halfway between two levels, which is a state a level
        button cannot honestly claim. */
     current: function () {
-      if (document.documentElement.hasAttribute('data-compact')) return 'compact';
       if (collectGroups().some(groupCollapsed)) return '';
-
       var projects = collectProjects();
       if (!projects.length) return 'people';
-      if (projects.every(projectCollapsed)) return 'projects';
-      if (projects.some(projectCollapsed)) return '';
-      if (projects.every(detailOpen)) return 'details';
-      if (projects.every(function (pid) { return !detailOpen(pid); })) return 'people';
-      return '';
+      var first = this.levelOf(projects[0]);
+      return projects.every(function (pid) { return Depth.levelOf(pid) === first; })
+        ? first : '';
     },
 
     show: function () {
       var level = this.current();
       all('#depth-switch .tab').forEach(function (tab) {
         tab.classList.toggle('tab--active', tab.dataset.depth === level);
+      });
+      all('.row-depth').forEach(function (group) {
+        var row = group.closest('.project-main-row');
+        var own = row ? Depth.levelOf(row.dataset.projId) : '';
+        within(group, '.tab').forEach(function (tab) {
+          var on = tab.dataset.depth === own;
+          tab.classList.toggle('tab--active', on);
+          tab.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
       });
     }
   };
@@ -1172,19 +1215,84 @@
     }
   }
 
+  /* The tags on the row mirror the toggles in the panel (gantt._platform_tags). */
+  function refreshPlatformTags(pid, names) {
+    var row = projectRow(pid);
+    var box = row && row.querySelector('.project-row__platforms');
+    if (!box) return;
+    box.replaceChildren();
+    names.forEach(function (name) {
+      var tag = document.createElement('span');
+      tag.className = 'platform-tag';
+      tag.textContent = name;
+      box.appendChild(tag);
+    });
+  }
+
   /* ─── Inline note editor (built through the DOM, never through strings) ─── */
+  /* Every copy of a note on the page: the panel's row, the aggregated card's,
+     and the clones the owner view draws. A change patches all of them. */
   function todoRows(pid, todoId) {
-    return [byId('todo-row-' + pid + '-' + todoId), byId('global-todo-row-' + pid + '-' + todoId)]
-      .filter(Boolean);
+    return all('.todo-item-row[data-project="' + CSS.escape(pid) +
+               '"][data-todo="' + CSS.escape(todoId) + '"]');
+  }
+
+  /* A list on the row, put there as JSON by the server (view._todo_row). */
+  function noteList(row, key) {
+    try {
+      var parsed = JSON.parse(row.dataset[key] || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) { return []; }
+  }
+
+  /* A comma separated field, as a list: trimmed, empties out, no repeats. */
+  function csvList(value) {
+    var seen = [];
+    String(value || '').split(',').forEach(function (part) {
+      var text = part.trim();
+      if (text && seen.indexOf(text) === -1) seen.push(text);
+    });
+    return seen;
+  }
+
+  function metaInput(className, label, value, vocabulary) {
+    var field = document.createElement('label');
+    field.className = 'note-field';
+    var caption = document.createElement('span');
+    caption.className = 'field-label';
+    caption.textContent = label;
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'form-input ' + className;
+    input.value = value;
+    input.setAttribute('aria-label', label);
+    attachSuggest(input, vocabulary, true);
+    field.append(caption, input);
+    return field;
   }
 
   function buildEditor(row, pid, todoId) {
     var wrapper = document.createElement('div');
     wrapper.className = 'todo-edit-wrapper';
 
+    var title = document.createElement('input');
+    title.type = 'text';
+    title.className = 'form-input todo-edit-title';
+    title.placeholder = 'Title (optional)';
+    title.setAttribute('aria-label', 'Title of the note');
+    title.value = row.dataset.title || '';
+
     var text = document.createElement('textarea');
     text.className = 'todo-edit-text';
     text.value = row.dataset.text || '';
+
+    var meta = document.createElement('div');
+    meta.className = 'todo-edit-meta';
+    meta.append(
+      metaInput('todo-edit-owners', 'Owners', noteList(row, 'owners').join(', '),
+                Notes.vocabulary('owners')),
+      metaInput('todo-edit-tags', 'Tags', noteList(row, 'tags').join(', '),
+                Notes.vocabulary('tags')));
 
     var actionsRow = document.createElement('div');
     actionsRow.className = 'todo-edit-actions';
@@ -1233,12 +1341,12 @@
       button.dataset.project = pid;
       button.dataset.todo = todoId;
       button.dataset.delta = String(delta);
-      button.disabled = !todoNeighbour(row, delta);
+      button.disabled = !canMove(row, delta);
       return button;
     });
 
     actionsRow.append(due, moves[0], moves[1], save, cancel);
-    wrapper.append(text, actionsRow);
+    wrapper.append(title, text, meta, actionsRow);
     row.replaceChildren(wrapper);
     text.focus();
   }
@@ -1248,27 +1356,44 @@
     return next && next.classList.contains('todo-item-row') ? next : null;
   }
 
-  /* The panel's list is the one the card is written from; the aggregated
-     surface shows the same notes and has to agree with it, so the row moves
-     in every list that holds it and the order is read back from the panel. */
+  /* Up and Down edit the order the card lists its notes in. Inside the
+     aggregated list that order is only on screen while nothing reorders,
+     narrows or regroups it: a step in a sorted list would land somewhere
+     the eye did not see it go. The panel's list is never sorted. */
+  function canMove(row, delta) {
+    if (row.dataset.clone) return false;
+    if (row.closest('#global-todos-content') && !Notes.plain()) return false;
+    return !!todoNeighbour(row, delta);
+  }
+
+  /* The list a card is written from: the panel's, or the inbox card's own,
+     since the inbox has no panel. */
+  function canonicalList(pid) {
+    var panel = byId('todos-container-' + pid);
+    if (panel) return panel;
+    var head = document.querySelector('#global-todos-cards [data-card="' + CSS.escape(pid) + '"]');
+    var card = head && head.closest('.global-todo-card');
+    return card ? card.querySelector('.todo-group[data-group="open"]') : null;
+  }
+
+  /* The canonical row moves, the order is read back from its list, and every
+     other copy of the note follows through its position, which is what the
+     aggregated list orders by when nothing else does. */
   function moveTodo(pid, todoId, delta) {
-    var moved = false;
-    todoRows(pid, todoId).forEach(function (row) {
-      var neighbour = todoNeighbour(row, delta);
-      if (!neighbour) return;
-      if (delta < 0) row.parentNode.insertBefore(row, neighbour);
-      else row.parentNode.insertBefore(neighbour, row);
-      moved = true;
+    var list = canonicalList(pid);
+    var row = list && within(list, '.todo-item-row').find(function (item) {
+      return item.dataset.todo === todoId;
     });
-    if (!moved) return;
+    var neighbour = row && todoNeighbour(row, delta);
+    if (!neighbour) return;
+    if (delta < 0) row.parentNode.insertBefore(row, neighbour);
+    else row.parentNode.insertBefore(neighbour, row);
 
-    var canonical = byId('todos-container-' + pid);
-    var order = Array.prototype.slice
-      .call(canonical.querySelectorAll('.todo-item-row'))
-      .map(function (item) { return item.dataset.todo; });
-
+    var order = within(list, '.todo-item-row').map(function (item) { return item.dataset.todo; });
     projectApi(pid, 'todo/reorder', { order: order })
       .then(function () {
+        Notes.restamp(pid, order);
+        Notes.apply();
         Toast.success('Notes reordered.');
         refreshMoveButtons(pid, todoId);
       })
@@ -1278,7 +1403,7 @@
   function refreshMoveButtons(pid, todoId) {
     todoRows(pid, todoId).forEach(function (row) {
       row.querySelectorAll('[data-action="todo-move"]').forEach(function (button) {
-        button.disabled = !todoNeighbour(row, Number(button.dataset.delta));
+        button.disabled = !canMove(row, Number(button.dataset.delta));
       });
     });
   }
@@ -1301,25 +1426,44 @@
     });
   }
 
+  /* What an editor holds, against what the row it sits in was rendered from. */
+  function editorValues(row) {
+    var field = function (selector) {
+      var input = row.querySelector(selector);
+      return input ? input.value : '';
+    };
+    return {
+      title: field('.todo-edit-title').trim(),
+      text: field('.todo-edit-text').trim(),
+      deadline: field('.todo-edit-dl'),
+      owners: csvList(field('.todo-edit-owners')),
+      tags: csvList(field('.todo-edit-tags'))
+    };
+  }
+
   function noteChanged(pid, todoId) {
     return todoRows(pid, todoId).some(function (row) {
-      var text = row.querySelector('.todo-edit-text');
-      var deadline = row.querySelector('.todo-edit-dl');
-      return (!!text && text.value !== (row.dataset.text || '')) ||
-             (!!deadline && deadline.value !== (row.dataset.dl || ''));
+      if (!row.querySelector('.todo-edit-text')) return false;
+      var typed = editorValues(row);
+      return typed.title !== (row.dataset.title || '') ||
+             typed.text !== (row.dataset.text || '').trim() ||
+             typed.deadline !== (row.dataset.dl || '') ||
+             typed.owners.join('\n') !== noteList(row, 'owners').join('\n') ||
+             typed.tags.join('\n') !== noteList(row, 'tags').join('\n');
     });
   }
 
-  function commitEdit(pid, todoId) {
-    var row = todoRows(pid, todoId).find(function (candidate) {
-      return candidate.querySelector('.todo-edit-text');
-    });
+  /* `source` is the copy of the note whose Save was pressed: with the note
+     open in more than one place, that is the editor that was typed in. */
+  function commitEdit(pid, todoId, source) {
+    var row = (source && source.querySelector('.todo-edit-text')) ? source
+      : todoRows(pid, todoId).find(function (candidate) {
+          return candidate.querySelector('.todo-edit-text');
+        });
     if (!row) return;
 
-    var text = row.querySelector('.todo-edit-text').value.trim();
-    var deadlineInput = row.querySelector('.todo-edit-dl');
-    var deadline = deadlineInput ? deadlineInput.value : '';
-    if (!text) {
+    var values = editorValues(row);
+    if (!values.text) {
       Toast.error('The note text cannot be empty.');
       return;
     }
@@ -1329,11 +1473,14 @@
       body: 'The card is rewritten on disk.',
       confirmLabel: 'Save'
     }, function () {
-      projectApi(pid, 'todo/update', { todo_id: todoId, text: text, deadline: deadline })
-        .then(function (result) {
-          TodoPatch.update(pid, todoId, text, deadline, result.html);
-          Toast.success('Note saved.');
-        }).catch(function () { /* reported */ });
+      projectApi(pid, 'todo/update', {
+        todo_id: todoId, text: values.text, deadline: values.deadline,
+        title: values.title, owners: values.owners, tags: values.tags
+      }).then(function (result) {
+        TodoPatch.update(pid, result.todo, result.html);
+        Notes.learn(result.todo);
+        Toast.success('Note saved.');
+      }).catch(function () { /* reported */ });
     });
   }
 
@@ -1626,6 +1773,9 @@
   function rowElement(section, row) {
     var wrapper = document.createElement('div');
     wrapper.className = 'advedit-row';
+    // The row's identity rides along unseen: it is how the server tells the
+    // row being edited from a new one, and nobody has to type it.
+    wrapper.dataset.rowId = (row && row.id != null) ? String(row.id) : '';
 
     section.columns.forEach(function (column) {
       var cell = document.createElement('div');
@@ -1636,10 +1786,11 @@
       var label = document.createElement('label');
       label.textContent = column.label;
       var input = document.createElement(long ? 'textarea' : 'input');
-      if (!long) input.type = 'text';
+      if (!long) input.type = column.kind === 'date' ? 'date' : 'text';
       input.className = 'form-input adv-row-input';
       input.dataset.col = column.key;
-      input.value = (row && row[column.key] != null) ? String(row[column.key]) : '';
+      var value = (row && row[column.key] != null) ? row[column.key] : '';
+      input.value = Array.isArray(value) ? value.join(', ') : String(value);
       if (column.choices) input.placeholder = column.choices.join(' | ');
       cell.append(label, input);
       wrapper.appendChild(cell);
@@ -1665,21 +1816,7 @@
     fieldset.appendChild(legend);
 
     if (section.kind === 'rows') {
-      var container = document.createElement('div');
-      container.className = 'advedit-rows';
-      container.dataset.rowsPath = section.path;
-      container.dataset.section = section.key;
-      (valueAt(data, section.path) || []).forEach(function (row) {
-        container.appendChild(rowElement(section, row));
-      });
-
-      var add = document.createElement('button');
-      add.type = 'button';
-      add.className = 'btn btn--outline btn--sm';
-      add.textContent = 'Add row';
-      add.dataset.action = 'advedit-row-add';
-      add.dataset.section = section.key;
-      fieldset.append(container, add);
+      fieldset.appendChild(rowsEditor(section, valueAt(data, section.path)));
       return fieldset;
     }
 
@@ -1690,6 +1827,45 @@
     });
     fieldset.appendChild(grid);
     return fieldset;
+  }
+
+  /* One table of rows, wherever a form asks for one: the rows there are, and
+     Add row under them. It answers `readValue`, so the dialog reads it like
+     any other control, and it carries its declaration so Add row knows what
+     columns a new row has. */
+  function rowsEditor(section, rows) {
+    var editor = document.createElement('div');
+    editor.className = 'rows-editor';
+    editor.__section = section;
+
+    var container = document.createElement('div');
+    container.className = 'advedit-rows';
+    (Array.isArray(rows) ? rows : []).forEach(function (row) {
+      if (row && typeof row === 'object') container.appendChild(rowElement(section, row));
+    });
+
+    var add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'btn btn--outline btn--sm';
+    add.textContent = 'Add row';
+    add.dataset.action = 'advedit-row-add';
+    editor.append(container, add);
+    editor.readValue = function () { return collectRows(container); };
+    return editor;
+  }
+
+  /* The rows as typed. A row with every column empty is not sent: whether it
+     was just added or emptied on purpose, there is nothing to keep. */
+  function collectRows(container) {
+    return within(container, '.advedit-row').map(function (rowEl) {
+      var row = {};
+      within(rowEl, '[data-col]').forEach(function (input) {
+        row[input.dataset.col] = input.value.trim();
+      });
+      if (!Object.keys(row).some(function (key) { return row[key]; })) return null;
+      if (rowEl.dataset.rowId) row.id = rowEl.dataset.rowId;
+      return row;
+    }).filter(Boolean);
   }
 
   function renderAdvForm(schema, data, body) {
@@ -1718,19 +1894,8 @@
       assignAt(payload, element.dataset.param, value);
     });
 
-    all('#advedit-body-form .advedit-rows').forEach(function (container) {
-      var rows = Array.prototype.slice.call(container.querySelectorAll('.advedit-row'))
-        .map(function (rowEl) {
-          var row = {};
-          Array.prototype.slice.call(rowEl.querySelectorAll('[data-col]')).forEach(function (input) {
-            row[input.dataset.col] = input.value.trim();
-          });
-          return row;
-        })
-        .filter(function (row) {
-          return Object.keys(row).some(function (key) { return row[key]; });
-        });
-      assignAt(payload, container.dataset.rowsPath, rows);
+    all('#advedit-body-form .rows-editor').forEach(function (editor) {
+      assignAt(payload, editor.__section.path, editor.readValue());
     });
 
     return payload;
@@ -1791,14 +1956,6 @@
     byId('advedit-save-raw').style.display = isForm ? 'none' : '';
   }
 
-  function addSchemaRow(sectionKey) {
-    if (!AdvEdit.schema) return;
-    var section = AdvEdit.schema.sections.find(function (entry) { return entry.key === sectionKey; });
-    var container = document.querySelector('.advedit-rows[data-section="' + sectionKey + '"]');
-    if (!section || !container) return;
-    container.appendChild(rowElement(section, {}));
-  }
-
   /* ─── Patching one row instead of reloading the document ────────────────────
      Ticking a checkbox used to call location.reload(): a white flash, the
      chart's horizontal scroll position lost, and no feedback beyond the row
@@ -1825,12 +1982,58 @@
     return match[4] ? out + ', ' + match[4] : out;
   }
 
-  function buildTodoRow(pid, todo, done, prefix) {
+  /* The server's domain.due_state, in the browser: overdue, today, tomorrow,
+     or nothing. Against the browser's own calendar day, which is the day the
+     person is looking at. */
+  function dueState(iso) {
+    var match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(iso || '').trim());
+    if (!match) return '';
+    var now = new Date();
+    var today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    var when = Date.UTC(+match[1], +match[2] - 1, +match[3]);
+    var days = Math.round((when - today) / 86400000);
+    if (days < 0) return 'overdue';
+    if (days === 0) return 'today';
+    return days === 1 ? 'tomorrow' : '';
+  }
+
+  var DUE_WORDS = { overdue: 'Overdue', today: 'Due today', tomorrow: 'Due tomorrow' };
+
+  /* The alert is cloned from the one the server rendered into a template, so
+     the glyph is drawn in exactly one place. */
+  function todoAlert(state) {
+    var template = byId('todo-alert-template');
+    var alert = template && template.content.firstElementChild;
+    if (!alert) return null;
+    var node = alert.cloneNode(true);
+    node.dataset.due = state;
+    node.title = DUE_WORDS[state] || '';
+    node.setAttribute('aria-label', node.title);
+    return node;
+  }
+
+  function chip(className, text) {
+    var node = document.createElement('span');
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+
+  function buildTodoRow(pid, todo, done, prefix, html) {
+    var owners = Array.isArray(todo.owners) ? todo.owners : csvList(todo.owners);
+    var tags = Array.isArray(todo.tags) ? todo.tags : csvList(todo.tags);
+    var due = done ? '' : dueState(todo.deadline);
+
     var row = document.createElement('div');
     row.className = 'todo-item-row' + (done ? ' done' : '');
     row.id = prefix + '-' + pid + '-' + todo.id;
     row.dataset.text = todo.text || '';
     row.dataset.dl = todo.deadline || '';
+    row.dataset.title = todo.title || '';
+    row.dataset.owners = JSON.stringify(owners);
+    row.dataset.tags = JSON.stringify(tags);
+    row.dataset.pos = String(todo.pos == null ? 0 : todo.pos);
+    if (due) row.dataset.due = due;
     row.dataset.project = pid;
     row.dataset.todo = todo.id;
 
@@ -1844,13 +2047,30 @@
     var hit = document.createElement('label');
     hit.className = 'todo-check';
     hit.appendChild(check);
+    row.appendChild(hit);
 
+    var alert = due && todoAlert(due);
+    if (alert) row.appendChild(alert);
+
+    var body = document.createElement('span');
+    body.className = 'todo-body';
+    if (todo.title) body.appendChild(chip('todo-title', todo.title));
     var text = document.createElement('span');
     text.className = 'todo-text' + (done ? ' done' : '');
     text.title = 'Double-click to edit';
-    text.textContent = todo.text || '';
-
-    row.append(hit, text);
+    // The markdown is rendered by the server, the one renderer there is; a
+    // row built without an answer from it shows the text as typed.
+    if (html) text.innerHTML = html;
+    else text.textContent = todo.text || '';
+    body.appendChild(text);
+    if (owners.length || tags.length) {
+      var meta = document.createElement('span');
+      meta.className = 'todo-meta';
+      owners.forEach(function (name) { meta.appendChild(chip('todo-owner', name)); });
+      tags.forEach(function (tag) { meta.appendChild(chip('todo-tag', tag)); });
+      body.appendChild(meta);
+    }
+    row.appendChild(body);
 
     var stamp = done ? formatDateLong(todo.completed_at) : formatDateLong(todo.deadline);
     if (stamp) {
@@ -1948,32 +2168,47 @@
     var history = byId('history-box-' + pid);
     if (open) emptyPlaceholder(open, 'No open note or action.');
     if (history) emptyPlaceholder(history, 'Nothing in the history yet.');
-    all('.global-todo-card .todo-group').forEach(function (group) {
+    all('#global-todos-cards .global-todo-card .todo-group').forEach(function (group) {
       if (!group.querySelector('.todo-item-row')) group.remove();
     });
     refreshCounters();
+    // The aggregated list is read through an order, a filter and a grouping:
+    // a row that changed is put where those say.
+    Notes.apply();
     UIState.save();
   }
 
+  /* Where a note added or reopened goes in the card's order: after the last. */
+  function nextPosition(pid) {
+    var list = canonicalList(pid);
+    var last = -1;
+    within(list || document.createElement('div'), '.todo-item-row').forEach(function (row) {
+      last = Math.max(last, Number(row.dataset.pos) || 0);
+    });
+    return last + 1;
+  }
+
   var TodoPatch = {
-    add: function (pid, todo) {
+    add: function (pid, todo, html) {
+      todo.pos = nextPosition(pid);
       var container = byId('todos-container-' + pid);
-      if (container) container.appendChild(buildTodoRow(pid, todo, false, 'todo-row'));
+      if (container) container.appendChild(buildTodoRow(pid, todo, false, 'todo-row', html));
       var group = aggregatedGroup(pid, 'open');
-      if (group) group.appendChild(buildTodoRow(pid, todo, false, 'global-todo-row'));
+      if (group) group.appendChild(buildTodoRow(pid, todo, false, 'global-todo-row', html));
       afterTodoChange(pid);
     },
 
-    toggle: function (pid, todo, done) {
+    toggle: function (pid, todo, done, html) {
       todoRows(pid, todo.id).forEach(function (row) { row.remove(); });
+      if (!done) todo.pos = nextPosition(pid);
       var target = done ? byId('history-box-' + pid) : byId('todos-container-' + pid);
       if (target) {
-        var row = buildTodoRow(pid, todo, done, 'todo-row');
+        var row = buildTodoRow(pid, todo, done, 'todo-row', html);
         if (done) target.insertBefore(row, target.firstChild);
         else target.appendChild(row);
       }
       var group = aggregatedGroup(pid, done ? 'done' : 'open');
-      if (group) group.appendChild(buildTodoRow(pid, todo, done, 'global-todo-row'));
+      if (group) group.appendChild(buildTodoRow(pid, todo, done, 'global-todo-row', html));
       afterTodoChange(pid);
     },
 
@@ -1982,11 +2217,13 @@
       afterTodoChange(pid);
     },
 
-    /* Only open notes are editable, so a rebuilt row is always an open one. */
-    update: function (pid, todoId, text, deadline) {
-      todoRows(pid, todoId).forEach(function (row) {
-        row.replaceWith(buildTodoRow(pid, { id: todoId, text: text, deadline: deadline },
-                                     false, row.id.split('-' + pid + '-')[0]));
+    /* Only open notes are editable, so a rebuilt row is always an open one.
+       It keeps the place it had; the clones are rebuilt by `afterTodoChange`. */
+    update: function (pid, todo, html) {
+      todoRows(pid, todo.id).forEach(function (row) {
+        if (row.dataset.clone) return;
+        todo.pos = Number(row.dataset.pos) || 0;
+        row.replaceWith(buildTodoRow(pid, todo, false, row.id.split('-' + pid + '-')[0], html));
       });
       afterTodoChange(pid);
     }
@@ -2069,7 +2306,9 @@
       var values = {};
       Object.keys(inputs).forEach(function (key) {
         var control = inputs[key];
-        values[key] = control.type === 'checkbox' ? control.checked : control.value;
+        // A table of rows answers for itself; a plain control is its value.
+        if (typeof control.readValue === 'function') values[key] = control.readValue();
+        else values[key] = control.type === 'checkbox' ? control.checked : control.value;
       });
       return values;
     }
@@ -2590,6 +2829,25 @@
   function simpleForm(options) {
     var data = options.data || {};
     loadSchema().then(function (schema) {
+      var tables = schema.simple_rows || [];
+      var fields = (schema.simple || []).map(function (field) {
+        return {
+          key: field.param,
+          label: field.label,
+          help: field.help,
+          control: fieldControl(field, valueAt(data, field.path))
+        };
+      });
+      // The row tables, under the fields, drawn by the same editor the
+      // advanced form uses and read back the same way.
+      tables.forEach(function (section) {
+        fields.push({
+          key: section.key,
+          label: section.legend,
+          help: section.help,
+          control: rowsEditor(section, valueAt(data, section.path))
+        });
+      });
       formDialog({
         title: options.title,
         confirmLabel: options.confirmLabel,
@@ -2597,27 +2855,47 @@
         confirmSave: false,
         wide: true,
         sideAction: options.sideAction,
-        fields: (schema.simple || []).map(function (field) {
-          return {
-            key: field.param,
-            label: field.label,
-            help: field.help,
-            control: fieldControl(field, valueAt(data, field.path))
-          };
-        }),
+        fields: fields,
         validate: function (values) {
           var from = String(values.start || '').trim();
           var to = String(values.end || '').trim();
           if (!String(values.name || '').trim()) return 'A project needs a name.';
           if ((from && !to) || (to && !from)) return 'A span needs a start and an end, or neither.';
           if (from && to && to < from) return 'A span cannot end before it starts.';
-          return '';
+          var complaint = '';
+          tables.forEach(function (section) {
+            complaint = complaint || rowsComplaint(values[section.key] || []);
+          });
+          return complaint;
         },
-        onSave: options.onSave
+        onSave: function (values) {
+          // A table travels at the path the card holds it, not under its key.
+          var payload = Object.assign({}, values);
+          tables.forEach(function (section) {
+            delete payload[section.key];
+            assignAt(payload, section.path, values[section.key] || []);
+          });
+          options.onSave(payload);
+        }
       });
     }).catch(function (err) {
       Toast.error('Could not open the form: ' + err.message);
     });
+  }
+
+  /* The rule the server applies (api._check_task_rows), said before the
+     round trip: a row belongs to somebody, and runs from a day to a day or
+     not at all. */
+  function rowsComplaint(rows) {
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (!String(row.who || '').trim()) return 'A timeline row needs someone to belong to.';
+      var from = String(row.start || '').trim();
+      var to = String(row.end || '').trim();
+      if ((from && !to) || (to && !from)) return 'A timeline row needs a start and an end, or neither.';
+      if (from && to && to < from) return 'A timeline row cannot end before it starts.';
+    }
+    return '';
   }
 
   /* A card that does not exist yet is active unless the form says otherwise,
@@ -2643,6 +2921,11 @@
   function formValues(card) {
     var data = Object.assign({}, card.data || {});
     if (card.span) data.timeline = Object.assign({}, data.timeline, card.span);
+    // The rows as the form shows them: two dates each, resolved by the server
+    // for a row written as a start and a count of days.
+    if (Array.isArray(card.tasks)) {
+      data.timeline = Object.assign({}, data.timeline, { tasks: card.tasks });
+    }
     if (card.estimate) {
       data._new_estimate = card.estimate.value;
       data._new_estimate_stage = card.estimate.stage;
@@ -2752,7 +3035,7 @@
      all of them must hold or any one is enough. Marks are drawn per matching
      project, so a word that is in a card the mode rejects is never lit up as
      if it were a hit. */
-  var SEARCH_IN = '.project-title, .resource-line, .todo-text, ' +
+  var SEARCH_IN = '.project-title, .resource-line, .todo-title, .todo-text, ' +
                   '.intro-text:not(.intro-text--empty), .global-todo-card__title, .pcard__name';
 
   var Search = {
@@ -3057,6 +3340,297 @@
     }
   };
 
+  /* ─── The aggregated notes ──────────────────────────────────────────────────
+     How the open notes are read: in what order, whose, and grouped by whom.
+     Three readings over the rows the server rendered, none of which changes
+     a card. The order is a sort of the rows inside each card's open group,
+     by the position the card lists them at or by due date either way, a
+     note with no date always last. The filter hides the rows of other
+     owners, then whatever is left empty. The grouping draws a second list,
+     one section per owner across every project, out of clones of the rows
+     the filter left, and hides the cards while it is on. Remembered per
+     browser, like the chart's own filters. */
+  var NOTE_ORDERS = ['asis', 'due', 'due-desc'];
+
+  var Notes = {
+    state: { sort: 'asis', owners: [], group: false },
+    words: null,
+
+    load: function () {
+      try {
+        var stored = JSON.parse(localStorage.getItem(NOTES_KEY) || 'null');
+        if (!stored) return;
+        this.state.sort = NOTE_ORDERS.indexOf(stored.sort) === -1 ? 'asis' : stored.sort;
+        this.state.owners = Array.isArray(stored.owners)
+          ? stored.owners.filter(function (name) { return typeof name === 'string'; })
+          : [];
+        this.state.group = !!stored.group;
+      } catch (err) { /* defaults */ }
+    },
+
+    save: function () {
+      try { localStorage.setItem(NOTES_KEY, JSON.stringify(this.state)); }
+      catch (err) { /* it still applies to this page */ }
+    },
+
+    /* The two open vocabularies of a note, carried once by the box and read
+       by name: who (the roster, then whoever a note names) and what about.
+       One array each, shared with every field that offers it, so a name
+       learnt below is offered everywhere at once. */
+    vocabulary: function (key) {
+      if (!this.words) {
+        var box = document.querySelector('.global-todos-box');
+        this.words = { owners: [], tags: [] };
+        ['owners', 'tags'].forEach(function (name) {
+          try {
+            var parsed = JSON.parse((box && box.dataset[name]) || '[]');
+            if (Array.isArray(parsed)) Notes.words[name] = parsed;
+          } catch (err) { /* nothing offered */ }
+        });
+      }
+      return this.words[key] || [];
+    },
+
+    /* A name or a tag typed for the first time is offered from now on, and
+       a new owner joins the filter's menu, without a reload. */
+    learn: function (todo) {
+      if (!todo) return;
+      var owners = this.vocabulary('owners');
+      var tags = this.vocabulary('tags');
+      (Array.isArray(todo.owners) ? todo.owners : []).forEach(function (name) {
+        if (owners.indexOf(name) === -1) owners.push(name);
+        Notes.offer(name);
+      });
+      (Array.isArray(todo.tags) ? todo.tags : []).forEach(function (tag) {
+        if (tags.indexOf(tag) === -1) tags.push(tag);
+      });
+    },
+
+    offer: function (name) {
+      var menu = document.querySelector('#owner-filter .filter-menu__panel');
+      if (!menu) return;
+      var offered = all('[data-change="owner-filter"]').map(function (box) { return box.value; });
+      if (offered.indexOf(name) !== -1) return;
+      var empty = menu.querySelector('.editable-empty');
+      if (empty) empty.remove();
+      var option = document.createElement('label');
+      option.className = 'filter-menu__option';
+      var box = document.createElement('input');
+      box.type = 'checkbox';
+      box.dataset.change = 'owner-filter';
+      box.value = name;
+      option.append(box, document.createTextNode(name));
+      menu.insertBefore(option, menu.querySelector('[data-action="owner-filter-clear"]'));
+    },
+
+    /* Nothing reorders, narrows or regroups the list: what is on screen is
+       the order the cards hold, which is the only order Up and Down edit. */
+    plain: function () {
+      return this.state.sort === 'asis' && !this.state.owners.length && !this.state.group;
+    },
+
+    setSort: function (key) {
+      this.state.sort = NOTE_ORDERS.indexOf(key) === -1 ? 'asis' : key;
+      this.apply();
+    },
+
+    setOwners: function (names) {
+      this.state.owners = names.slice();
+      this.apply();
+    },
+
+    setOwner: function (name, on) {
+      var chosen = this.state.owners.filter(function (entry) { return entry !== name; });
+      if (on) chosen.push(name);
+      this.setOwners(chosen);
+    },
+
+    setGroup: function (on) {
+      this.state.group = !!on;
+      this.apply();
+    },
+
+    /* After a reorder: the position every copy of a note carries follows the
+       order the card was just written in. */
+    restamp: function (pid, order) {
+      order.forEach(function (todoId, index) {
+        todoRows(pid, todoId).forEach(function (row) { row.dataset.pos = String(index); });
+      });
+    },
+
+    /* The rows in the chosen order. By position, or by due date either way
+       with the undated last: a note with no date has no place on the time
+       axis. Ties keep the order they came in. */
+    order: function (rows) {
+      var sort = this.state.sort;
+      var indexed = rows.map(function (row, index) { return { row: row, index: index }; });
+      indexed.sort(function (a, b) {
+        if (sort === 'asis') {
+          return ((Number(a.row.dataset.pos) || 0) - (Number(b.row.dataset.pos) || 0)) ||
+                 (a.index - b.index);
+        }
+        var da = a.row.dataset.dl || '';
+        var db = b.row.dataset.dl || '';
+        if (!da || !db) return da ? -1 : (db ? 1 : a.index - b.index);
+        if (da !== db) return (da < db) === (sort === 'due') ? -1 : 1;
+        return a.index - b.index;
+      });
+      return indexed.map(function (entry) { return entry.row; });
+    },
+
+    /* Whether the filter keeps a note: one of its owners is ticked. A note
+       with no owner leaves with the first tick, like a project with no
+       platform does. */
+    keeps: function (row) {
+      var wanted = this.state.owners;
+      if (!wanted.length) return true;
+      return noteList(row, 'owners').some(function (name) { return wanted.indexOf(name) !== -1; });
+    },
+
+    apply: function () {
+      var state = this.state;
+      var host = byId('global-todos-cards');
+      if (!host) return;                                  // another page
+
+      within(host, '.todo-group[data-group="open"]').forEach(function (group) {
+        Notes.order(within(group, '.todo-item-row')).forEach(function (row) {
+          group.appendChild(row);
+        });
+      });
+
+      var shown = 0, total = 0;
+      within(host, '.todo-item-row').forEach(function (row) {
+        var keep = Notes.keeps(row);
+        row.hidden = !keep;
+        if (row.classList.contains('done')) return;
+        total += 1;
+        if (keep) shown += 1;
+      });
+      within(host, '.todo-group').forEach(function (group) {
+        group.hidden = !within(group, '.todo-item-row').some(function (row) { return !row.hidden; });
+      });
+      // A card the filter empties goes with its notes; the inbox stays,
+      // because its composer is the way a note is written there.
+      within(host, '.global-todo-card').forEach(function (card) {
+        var left = within(card, '.todo-item-row').some(function (row) { return !row.hidden; });
+        card.hidden = !left && state.owners.length > 0 && !card.hasAttribute('data-inbox');
+      });
+
+      var owners = byId('global-todos-owners');
+      if (owners) {
+        if (state.group) this.buildOwners(owners);
+        else owners.replaceChildren();
+        owners.hidden = !state.group;
+        host.hidden = state.group;
+      }
+      this.show(shown, total);
+      this.save();
+    },
+
+    /* One section per owner, the notes of every project together, in the
+       chosen order: the list turned inside out. A note with two owners is
+       under both; a note with none is under "No owner", last. The rows are
+       clones, so every action on one of them reaches the note it copies. */
+    buildOwners: function (host) {
+      host.replaceChildren();
+      var sections = {}, names = [], serial = 0;
+      all('#global-todos-cards .todo-group[data-group="open"] .todo-item-row').forEach(function (row) {
+        if (row.hidden) return;
+        var owners = noteList(row, 'owners');
+        (owners.length ? owners : ['']).forEach(function (name) {
+          if (!sections[name]) { sections[name] = []; names.push(name); }
+          sections[name].push(row);
+        });
+      });
+      names.sort(function (a, b) {
+        if (!a || !b) return a ? -1 : (b ? 1 : 0);
+        return a.localeCompare(b);
+      });
+      if (!names.length) {
+        var empty = document.createElement('div');
+        empty.className = 'todo-empty';
+        empty.textContent = 'No open note to show.';
+        host.appendChild(empty);
+        return;
+      }
+      names.forEach(function (name) {
+        var card = document.createElement('div');
+        card.className = 'global-todo-card global-todo-card--owner';
+        var head = document.createElement('div');
+        head.className = 'global-todo-card__head';
+        var title = document.createElement('strong');
+        title.className = 'global-todo-card__title';
+        title.textContent = name || 'No owner';
+        var badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = String(sections[name].length);
+        head.append(title, badge);
+
+        var group = document.createElement('div');
+        group.className = 'todo-group';
+        group.dataset.group = 'open';
+        // As listed is the cards' own order, which the rows were collected
+        // in; a position means nothing across two cards.
+        var rows = Notes.state.sort === 'asis' ? sections[name] : Notes.order(sections[name]);
+        rows.forEach(function (row) {
+          serial += 1;
+          var clone = row.cloneNode(true);
+          clone.id = 'owner-todo-row-' + serial + '-' + row.dataset.project + '-' + row.dataset.todo;
+          clone.dataset.clone = '1';
+          clone.removeAttribute('draggable');
+          var owner = row.closest('.global-todo-card');
+          var from = owner && owner.querySelector('.global-todo-card__title');
+          var body = clone.querySelector('.todo-body');
+          if (body && from) body.appendChild(chip('todo-project', from.textContent));
+          group.appendChild(clone);
+        });
+        card.append(head, group);
+        host.appendChild(card);
+      });
+    },
+
+    show: function (shown, total) {
+      var state = this.state;
+      all('#notes-sort .tab').forEach(function (tab) {
+        var on = tab.dataset.sort === state.sort;
+        tab.classList.toggle('tab--active', on);
+        tab.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      all('[data-change="owner-filter"]').forEach(function (box) {
+        box.checked = state.owners.indexOf(box.value) !== -1;
+      });
+      var badge = byId('owner-filter-count');
+      if (badge) {
+        badge.textContent = state.owners.length;
+        badge.hidden = !state.owners.length;
+      }
+      var group = byId('notes-group');
+      if (group) group.setAttribute('aria-pressed', state.group ? 'true' : 'false');
+      var count = byId('notes-count');
+      if (count) {
+        count.textContent = state.owners.length ? shown + ' of ' + total + ' open notes' : '';
+      }
+      // Up and Down in an open editor follow the reading.
+      all('#global-todos-content [data-action="todo-move"]').forEach(function (button) {
+        var row = button.closest('.todo-item-row');
+        if (row) button.disabled = !canMove(row, Number(button.dataset.delta));
+      });
+    },
+
+    restore: function () {
+      this.load();
+      // An owner nobody names any more would hide every note with no tick to
+      // remove. Only where the menu is: another page has no menu at all.
+      if (byId('owner-filter')) {
+        var offered = all('[data-change="owner-filter"]').map(function (box) { return box.value; });
+        this.state.owners = this.state.owners.filter(function (name) {
+          return offered.indexOf(name) !== -1;
+        });
+      }
+      this.apply();
+    }
+  };
+
   /* ─── Action registry (open/closed: extend without touching the router) ── */
   var ClickActions = {
     'toggle-global': function () {
@@ -3099,6 +3673,11 @@
     },
 
     'depth': function (el, data) { Depth.set(data.depth); },
+    'project-depth': function (el, data) { Depth.setProject(data.project, data.depth); },
+
+    'notes-sort': function (el, data) { Notes.setSort(data.sort); },
+    'notes-group': function (el) { Notes.setGroup(el.getAttribute('aria-pressed') !== 'true'); },
+    'owner-filter-clear': function () { Notes.setOwners([]); },
 
     'search-mode': function (el, data) { Filters.setMode(data.mode); },
     'search-only': function (el) {
@@ -3108,33 +3687,41 @@
     'filter-clear': function () { Filters.clearNarrowing(); },
 
     'todo-add': function (el, data) {
-      var textInput = byId('new-todo-text-' + data.project);
-      var dateInput = byId('new-todo-dl-' + data.project);
-      if (!textInput || !textInput.value.trim()) return;
+      var inputs = composerInputs(data.project);
+      if (!inputs.text) return;
       var payload = {
-        text: textInput.value.trim(),
-        deadline: dateInput ? dateInput.value : ''
+        text: inputs.text.value.trim(),
+        deadline: inputs.dl ? inputs.dl.value : '',
+        title: inputs.title ? inputs.title.value.trim() : '',
+        owners: csvList(inputs.owners && inputs.owners.value),
+        tags: csvList(inputs.tags && inputs.tags.value)
       };
+      if (!payload.text) {
+        // A title alone is not a note: the text is what a note is.
+        if (payload.title) Toast.error('A note needs its text; the title goes above it.');
+        return;
+      }
       guard('save', {
         title: 'Add this note?',
         body: 'It is written into the project card.',
         confirmLabel: 'Add'
       }, function () {
         projectApi(data.project, 'todo/add', payload).then(function (result) {
-          if (result.todo) TodoPatch.add(data.project, result.todo, result.html);
-          textInput.value = '';
-          if (dateInput) dateInput.value = '';
+          if (result.todo) {
+            TodoPatch.add(data.project, result.todo, result.html);
+            Notes.learn(result.todo);
+          }
+          clearComposer(inputs);
           Toast.success('Note added.');
         }).catch(function () { /* reported */ });
       });
     },
     'todo-add-cancel': function (el, data) {
-      var textInput = byId('new-todo-text-' + data.project);
-      var dateInput = byId('new-todo-dl-' + data.project);
-      guardDiscard(!!(textInput && textInput.value.trim()), function () {
-        if (textInput) textInput.value = '';
-        if (dateInput) dateInput.value = '';
+      var inputs = composerInputs(data.project);
+      var typed = Object.keys(inputs).some(function (name) {
+        return !!(inputs[name] && inputs[name].value.trim());
       });
+      guardDiscard(typed, function () { clearComposer(inputs); });
     },
     'todo-toggle': function (el, data) {
       el.disabled = true;
@@ -3163,7 +3750,9 @@
         }).catch(function () { /* reported */ });
       });
     },
-    'todo-save':   function (el, data) { commitEdit(data.project, data.todo); },
+    'todo-save':   function (el, data) {
+      commitEdit(data.project, data.todo, el.closest('.todo-item-row'));
+    },
     'todo-move': function (el, data) { moveTodo(data.project, data.todo, Number(data.delta)); },
     'todo-cancel': function (el, data) {
       guardDiscard(noteChanged(data.project, data.todo), function () {
@@ -3184,11 +3773,13 @@
       var active = all('#tags-box-' + CSS.escape(data.project) + ' .tag-opt-btn.active')
         .map(function (button) { return button.dataset.platform; });
       projectApi(data.project, 'update', { platforms: active }).then(function () {
-        // The row carries the list the platform filter reads: it follows the
-        // card, and a filter that is on says so at once.
+        // The row carries the list the platform filter reads, and shows it
+        // as tags: both follow the card, and a filter that is on says so at
+        // once.
         var row = projectRow(data.project);
         if (row) {
           row.dataset.platforms = JSON.stringify(active);
+          refreshPlatformTags(data.project, active);
           Filters.apply();
         }
       }).catch(function () {
@@ -3368,18 +3959,44 @@
       openRename(data.project, data.name || '');
     },
 
-    'advedit-row-add': function (el, data) { addSchemaRow(data.section); },
+    /* Add row, wherever the table sits: the editor carries its own columns. */
+    'advedit-row-add': function (el) {
+      var editor = el.closest('.rows-editor');
+      var container = editor && editor.querySelector('.advedit-rows');
+      if (!editor || !editor.__section || !container) return;
+      var row = rowElement(editor.__section, {});
+      container.appendChild(row);
+      var first = row.querySelector('input, textarea');
+      if (first) first.focus();
+    },
     'advedit-row-remove': function (el) {
       var row = el.closest('.advedit-row');
       if (row) row.remove();
+      if (el.closest('#advanced-edit-overlay')) AdvEdit.dirty = true;
     }
   };
+
+  /* The composer's fields, by name: the text, and what goes around it. */
+  function composerInputs(pid) {
+    var inputs = {};
+    ['title', 'text', 'owners', 'tags', 'dl'].forEach(function (name) {
+      inputs[name] = byId('new-todo-' + name + '-' + pid);
+    });
+    return inputs;
+  }
+
+  function clearComposer(inputs) {
+    Object.keys(inputs).forEach(function (name) {
+      if (inputs[name]) inputs[name].value = '';
+    });
+  }
 
   var ChangeActions = {
     'preference': function (el, data) { Prefs.set(data.pref, el.checked); },
     'band': function (el, data) { Band.set(data.band, +el.value); },
     'search': function (el) { Filters.setQuery(el.value, el); },
     'platform-filter': function (el) { Filters.setPlatform(el.value, el.checked); },
+    'owner-filter': function (el) { Notes.setOwner(el.value, el.checked); },
     'window': function (el) {
       var picker = byId('window-date');
       if (el.value !== 'date') return ChartWindow.go({ from: el.value });
@@ -3762,7 +4379,11 @@
           .map(function (item) { return item.dataset.todo; });
 
         projectApi(pid, 'todo/reorder', { order: order })
-          .then(function () { Toast.success('Notes reordered.'); })
+          .then(function () {
+            Notes.restamp(pid, order);
+            Notes.apply();
+            Toast.success('Notes reordered.');
+          })
           .catch(function () { location.reload(); });   // put the list back as stored
       });
     }
@@ -4053,6 +4674,11 @@
   Band.load();
     UIState.restore();
     Filters.restore();
+    Notes.restore();
+    // The composers' open vocabularies: the page carries them once, by name.
+    all('input[data-suggest]').forEach(function (input) {
+      attachSuggest(input, Notes.vocabulary(input.dataset.suggest), true);
+    });
     // A window that stops being narrow takes the project list with it, and an
     // adopted panel would go with the list: it goes home first.
     window.addEventListener('resize', syncPanels);

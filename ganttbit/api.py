@@ -12,7 +12,7 @@ import unicodedata
 from datetime import datetime
 
 from . import schema, settings as settings_module
-from .domain import display_group, search_text
+from .domain import display_group, note_list, search_text
 from .markup import render_markdown
 from .repository import SAFE_ID_RE, csv_to_list, ensure_dict
 
@@ -41,19 +41,23 @@ def _simple_update_project(data, params, now):
 
     The same declaration the form is drawn from, applied the same way an
     update from the panel is applied. Unlike a creation, an empty answer is an
-    answer: it clears the field, because the form showed what was there.
+    answer: it clears the field, because the form showed what was there. The
+    timeline rows come the same way: the rows the form showed, and only those.
     """
     _check_optional_span(params)
+    _check_task_rows(params)
     schema.apply_fields(data, params, schema.simple_fields())
     # The form's two dates are the whole truth about the bar. `days` is the
     # other way of saying it, and keeping both is how they come to disagree —
     # the same rule a dragged bar already follows.
     if 'start' in params or 'end' in params:
         ensure_dict(data, 'timeline').pop('days', None)
+    schema.apply_rows(data, params, sections=schema.simple_rows(), now=now)
+    _settle_task_spans(data, params)
     _record_estimate(data, now)
 
 
-def _advanced_update_project(data, params, _now):
+def _advanced_update_project(data, params, now):
     """
     Advanced edit: every field of the card schema.
 
@@ -61,7 +65,45 @@ def _advanced_update_project(data, params, _now):
     not know about `todos` or `intro` cannot erase them.
     """
     schema.apply_fields(data, params, schema.advanced_fields())
-    schema.apply_rows(data, params)
+    schema.apply_rows(data, params, now=now)
+
+
+def _check_task_rows(params):
+    """
+    The rows of the simple form, refused before any of them reaches the card.
+
+    A row belongs to somebody, and it runs from a day to a day or not at all:
+    one date is half a bar, and a bar that ends before it starts is not one.
+    An emptied row is not checked, because it is not kept.
+    """
+    rows = schema.get_path(params, 'timeline.tasks')
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if not any(str(value).strip() for key, value in row.items() if key != 'id'):
+            continue
+        if not str(row.get('who', '')).strip():
+            raise ApiError('A timeline row needs someone to belong to.')
+        start, end = str(row.get('start', '')).strip(), str(row.get('end', '')).strip()
+        if start or end:
+            _checked_span({'start': start, 'end': end})
+
+
+def _settle_task_spans(data, params):
+    """
+    A row the form gave an end to says it one way only.
+
+    The form opens on the end the chart draws for a row written as a start and
+    a count of days, and writes it back as a date; `days` then goes, exactly
+    as it goes from the project's own span. Only when rows were posted at all.
+    """
+    if schema.get_path(params, 'timeline.tasks') is schema._MISSING:
+        return
+    for task in csv_to_list((data.get('timeline') or {}).get('tasks')):
+        if isinstance(task, dict) and str(task.get('end', '')).strip():
+            task.pop('days', None)
 
 
 def _raw_update_project(repository, project_id, params):
@@ -143,17 +185,55 @@ def _index_of(items, part, path):
     raise ApiError(f'No value at {path}.', status=404)
 
 
-def _row_id(kind, data, count, now):
-    """
-    The id of a new row on a card, unique within the card.
+# The id of a new row on a card lives with the schema, which mints one for
+# every table row the forms send without one; a note is a row like any other.
+_row_id = schema.new_row_id
 
-    The project id goes into it with its dots flattened: the structure view
-    addresses a value by a dotted path, so a dot here would split the id in
-    two and leave the row unreachable — `todos.todo-p.x-1-…` is read as three
-    steps, not two, and answers 404.
+# What a note is made of, in reading order: what it is called, what it says,
+# when, for whom, what about. Everything but the text is optional and an empty
+# one is not written, so a card stays as small as the format allows.
+_NOTE_KEYS = ('id', 'title', 'text', 'deadline', 'owners', 'tags')
+
+
+def _note_list(params, key):
+    """Owners or tags from the payload: a list or a comma separated line."""
+    values = []
+    for item in csv_to_list(params.get(key)):
+        text = '' if item is None else str(item).strip()
+        if text and text not in values:
+            values.append(text)
+    return values
+
+
+def _write_note(item, params, *, text):
     """
-    owner = str(data.get('id', 'project')).replace('.', '-')
-    return f'{kind}-{owner}-{count}-{int(now.timestamp())}'
+    Lay the note out from the payload, in reading order.
+
+    A key the payload does not carry keeps the value the note had — an older
+    client that never heard of owners cannot erase them — and a key the card
+    holds that this code knows nothing about keeps its place after the rest.
+    """
+    title = (str(params.get('title', '') or '').strip() if 'title' in params
+             else str(item.get('title', '') or '').strip())
+    owners = _note_list(params, 'owners') if 'owners' in params else note_list(item, 'owners')
+    tags = _note_list(params, 'tags') if 'tags' in params else note_list(item, 'tags')
+    deadline = (str(params.get('deadline', '')).strip() if 'deadline' in params
+                else str(item.get('deadline', '') or '').strip())
+
+    rest = {key: value for key, value in item.items() if key not in _NOTE_KEYS}
+    identity = item['id']
+    item.clear()
+    item['id'] = identity
+    if title:
+        item['title'] = title
+    item['text'] = text
+    item['deadline'] = deadline
+    if owners:
+        item['owners'] = owners
+    if tags:
+        item['tags'] = tags
+    item.update(rest)
+    return item
 
 
 def _add_todo(data, params, now):
@@ -162,11 +242,7 @@ def _add_todo(data, params, now):
         raise ApiError('The note text is required.')
 
     todos = csv_to_list(data.get('todos'))
-    todo = {
-        'id': _row_id('todo', data, len(todos) + 1, now),
-        'text': text,
-        'deadline': str(params.get('deadline', '')).strip(),
-    }
+    todo = _write_note({'id': _row_id('todo', data, len(todos) + 1, now)}, params, text=text)
     todos.append(todo)
     data['todos'] = todos
     # Handed back so the browser can add the row without reloading the page.
@@ -182,8 +258,7 @@ def _update_todo(data, params, _now):
     for collection in ('todos', 'done'):
         for item in csv_to_list(data.get(collection)):
             if _is_note(item, todo_id):
-                item['text'] = text
-                item['deadline'] = str(params.get('deadline', '')).strip()
+                _write_note(item, params, text=text)
                 return {'todo': item, 'html': render_markdown(text)}
     raise ApiError('Note not found.', status=404)
 
@@ -609,7 +684,12 @@ def _create_project(repository, params, now):
             'priority': str(rank), 'status': 'active'}
 
     _check_optional_span(params)
+    _check_task_rows(params)
     schema.apply_fields(card, _filled(params), schema.simple_fields(repository.settings))
+    # The rows typed into the form, if any: a card born with its people on it.
+    if schema.get_path(params, 'timeline.tasks'):
+        schema.apply_rows(card, params, sections=schema.simple_rows(repository.settings),
+                          now=now)
     _record_estimate(card, now)
 
     repository.save(project_id, card)

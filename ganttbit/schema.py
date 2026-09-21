@@ -7,6 +7,8 @@ Adding a field is a one-line change here, instead of three edits kept in sync
 by hand.
 """
 
+from datetime import datetime
+
 from . import settings as settings_module
 from .domain import used_values
 from .repository import csv_to_list, ensure_dict
@@ -52,6 +54,11 @@ def _row(key, label, choices=None, kind=TEXT):
             'choices': list(choices) if choices else None}
 
 
+# No table has an `id` column. The identifier of a row is the format's own
+# business — it is what keeps `- task-1` from reading as a nested group — and
+# nobody should have to invent one: a row the form sends without an id is
+# given one by `apply_rows`, the way a note or a milestone is, and a row that
+# has one carries it back unseen.
 DEPENDENCY_COLUMNS = [
     _row('project_or_service', 'Project / service'),
     _row('team', 'Team'),
@@ -59,7 +66,6 @@ DEPENDENCY_COLUMNS = [
     _row('criticality', 'Criticality', settings_module.SEVERITY_OPTIONS),
 ]
 TASK_COLUMNS = [
-    _row('id', 'ID'),
     _row('who', 'Who'),
     _row('start', 'Start'),
     _row('end', 'End'),
@@ -67,25 +73,39 @@ TASK_COLUMNS = [
     _row('flags', 'Flags'),
     _row('note', 'Note'),
 ]
+# The same rows as the simple form asks for them: who, when, what. `days` and
+# `flags` are not shown and survive a save untouched, because a posted row is
+# merged into the row it names rather than replacing it.
+SIMPLE_TASK_COLUMNS = [
+    _row('who', 'Who'),
+    _row('start', 'Start', kind=DATE),
+    _row('end', 'End', kind=DATE),
+    _row('note', 'Note'),
+]
 MILESTONE_COLUMNS = [
-    _row('id', 'ID'),
     _row('date', 'Date'),
     _row('text', 'Text'),
 ]
 ESTIMATE_COLUMNS = [
-    _row('id', 'ID'),
     _row('stage', 'Stage', settings_module.ESTIMATE_STAGES),
     _row('value', 'Value', kind=LONG),
     _row('date', 'Given on'),
     _row('note', 'What moved it'),
 ]
 RISK_COLUMNS = [
-    _row('id', 'ID'),
     _row('description', 'Description'),
     _row('severity', 'Severity', settings_module.SEVERITY_OPTIONS),
     _row('mitigation', 'Mitigation'),
     _row('owner', 'Owner'),
 ]
+
+
+def _rows(key, legend, path, row, columns, help=''):
+    """
+    One row table. `row` is the word a generated identifier starts with.
+    """
+    return {'key': key, 'legend': legend, 'kind': ROWS, 'path': path, 'row': row,
+            'columns': columns, 'help': help}
 
 
 def sections(settings=None):
@@ -111,12 +131,9 @@ def sections(settings=None):
             field('timeline.end', 'End', help='YYYY-MM-DD, or leave empty and set Days'),
             field('timeline.days', 'Days', help='Working days, when there is no end date'),
         ]},
-        {'key': 'timeline_tasks', 'legend': 'Timeline rows', 'kind': ROWS,
-         'path': 'timeline.tasks', 'columns': TASK_COLUMNS},
-        {'key': 'milestones', 'legend': 'Milestones', 'kind': ROWS,
-         'path': 'milestones', 'columns': MILESTONE_COLUMNS},
-        {'key': 'estimates', 'legend': 'Estimates', 'kind': ROWS,
-         'path': 'estimates', 'columns': ESTIMATE_COLUMNS},
+        _rows('timeline_tasks', 'Timeline rows', 'timeline.tasks', 'task', TASK_COLUMNS),
+        _rows('milestones', 'Milestones', 'milestones', 'milestone', MILESTONE_COLUMNS),
+        _rows('estimates', 'Estimates', 'estimates', 'estimate', ESTIMATE_COLUMNS),
         {'key': 'tech_footprint', 'legend': 'Technical footprint', 'fields': [
             field('tech_footprint.platforms', 'Platforms', LIST,
                   suggest=config.platforms, help='Comma separated'),
@@ -130,12 +147,12 @@ def sections(settings=None):
             field('stakeholders.delivery_manager', 'Delivery manager'),
             field('stakeholders.qa_lead', 'QA lead'),
         ]},
-        {'key': 'dependencies_upstream', 'legend': 'Upstream dependencies', 'kind': ROWS,
-         'path': 'dependencies.upstream', 'columns': DEPENDENCY_COLUMNS},
-        {'key': 'dependencies_downstream', 'legend': 'Downstream dependencies', 'kind': ROWS,
-         'path': 'dependencies.downstream', 'columns': DEPENDENCY_COLUMNS},
-        {'key': 'risks', 'legend': 'Risks & criticalities', 'kind': ROWS,
-         'path': 'risks_and_criticalities', 'columns': RISK_COLUMNS},
+        _rows('dependencies_upstream', 'Upstream dependencies', 'dependencies.upstream',
+              'upstream', DEPENDENCY_COLUMNS),
+        _rows('dependencies_downstream', 'Downstream dependencies',
+              'dependencies.downstream', 'downstream', DEPENDENCY_COLUMNS),
+        _rows('risks', 'Risks & criticalities', 'risks_and_criticalities', 'risk',
+              RISK_COLUMNS),
         {'key': 'planning', 'legend': 'Planning factors', 'fields': [
             field('planning_factors.team_capacity_needed', 'Team capacity needed'),
             field('planning_factors.critical_path', 'Critical path'),
@@ -231,6 +248,21 @@ def simple_fields(settings=None):
     ]
 
 
+def simple_rows(settings=None):
+    """
+    The row tables the simple form carries under its fields.
+
+    One today: who is on the project, and when. A project turns up with a name
+    and soon after with somebody on it, and before this the first row could
+    only be written from the panel, or from Advanced Edit, which asked for an
+    id nobody should have to invent. Rendered like the fields are, from this
+    list, and applied by the same rule as the advanced form's tables.
+    """
+    return [_rows('timeline_tasks', 'Timeline rows', 'timeline.tasks', 'task',
+                  SIMPLE_TASK_COLUMNS,
+                  help='Who is on it and when. Both dates, or neither.')]
+
+
 # ─── Nested path access ──────────────────────────────────────────────────────
 def entry_for(path, settings=None):
     """
@@ -267,6 +299,17 @@ def get_path(mapping, path):
     return cursor
 
 
+def _drop_path(mapping, path):
+    parts = path.split('.')
+    cursor = mapping
+    for part in parts[:-1]:
+        cursor = cursor.get(part) if isinstance(cursor, dict) else None
+        if cursor is None:
+            return
+    if isinstance(cursor, dict):
+        cursor.pop(parts[-1], None)
+
+
 def set_path(mapping, path, value):
     parts = path.split('.')
     cursor = mapping
@@ -301,6 +344,19 @@ def coerce(entry, value):
     return text
 
 
+def new_row_id(kind, data, count, now):
+    """
+    The id of a new row on a card, unique within the card.
+
+    The project id goes into it with its dots flattened: the structure view
+    addresses a value by a dotted path, so a dot here would split the id in
+    two and leave the row unreachable — `todos.todo-p.x-1-…` is read as three
+    steps, not two, and answers 404.
+    """
+    owner = str(data.get('id', 'project')).replace('.', '-')
+    return f'{kind}-{owner}-{count}-{int(now.timestamp())}'
+
+
 def clean_rows(rows, columns=None):
     """Drop entirely empty rows from a dynamic table, and validate choices."""
     cleaned = []
@@ -310,7 +366,8 @@ def clean_rows(rows, columns=None):
             if str(row).strip():
                 cleaned.append(row)
             continue
-        if not any(str(value).strip() for value in row.values()):
+        # An id alone is not a row: the form emptied every column of it.
+        if not any(str(value).strip() for key, value in row.items() if key != 'id'):
             continue
         for key, value in row.items():
             column = by_key.get(key)
@@ -334,12 +391,52 @@ def apply_fields(data, params, fields):
         set_path(data, entry['path'], coerce(entry, value))
 
 
-def apply_rows(data, params, settings=None):
-    for section in row_sections(settings):
+def apply_rows(data, params, settings=None, *, sections=None, now=None):
+    """
+    Apply the row tables the payload carries, one table at a time.
+
+    A posted row that names an id is the row of that id, updated in the
+    columns it posted and left alone in the rest: the simple form shows four
+    columns of a timeline row and must not drop the flags it never showed. A
+    row without an id is new and is given one here, so nobody types an
+    identifier. A row the payload does not mention is gone: the form showed
+    it, and removing it was the ✕.
+    """
+    now = now or datetime.now()
+    for section in (row_sections(settings) if sections is None else sections):
         rows = get_path(params, section['path'])
         if rows is _MISSING:
             continue
-        set_path(data, section['path'], clean_rows(rows, section['columns']))
+        posted = clean_rows(rows, section['columns'])
+        merged = _merge_rows(data, section, posted, now)
+        if merged:
+            set_path(data, section['path'], merged)
+        else:
+            # An emptied table is no table: `- tasks` with nothing under it
+            # would read back as an empty group rather than as nothing.
+            _drop_path(data, section['path'])
+
+
+def _merge_rows(data, section, posted, now):
+    existing = get_path(data, section['path'])
+    existing = [row for row in existing if isinstance(row, dict)] \
+        if isinstance(existing, list) else []
+    known = {str(row.get('id', '')): row for row in existing if row.get('id')}
+
+    merged, count = [], len(existing)
+    for row in posted:
+        if not isinstance(row, dict):
+            merged.append(row)
+            continue
+        identity = str(row.get('id', '') or '').strip()
+        if identity in known:
+            merged.append({**known[identity], **row, 'id': identity})
+            continue
+        count += 1
+        values = {key: value for key, value in row.items() if key != 'id'}
+        merged.append({'id': identity or new_row_id(section['row'], data, count, now),
+                       **values})
+    return merged
 
 
 def _offer(fields, projects):
@@ -363,4 +460,5 @@ def as_json(settings=None, projects=()):
     for block in blocks:
         if 'fields' in block:
             _offer(block['fields'], projects)
-    return {'sections': blocks, 'simple': _offer(simple_fields(config), projects)}
+    return {'sections': blocks, 'simple': _offer(simple_fields(config), projects),
+            'simple_rows': simple_rows(config)}

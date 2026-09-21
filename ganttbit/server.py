@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import quote, unquote, urlencode
 
 from . import __version__, schema, settings as settings_module, startup, view
-from .domain import declared_span, latest_estimate
+from .domain import declared_span, latest_estimate, task_form_rows
 from .api import ApiError, delete_attachment, dispatch, upload_attachment
 from .repository import ProjectRepository
 
@@ -238,10 +238,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         data, body = self.repository.load(project_id)
         if data is None:
             return self._send_json({'success': False, 'error': 'Project not found'}, 404)
-        # Two answers the simple form asks for are not plain values in the card,
-        # so they are resolved here rather than guessed at in the browser: a bar
-        # may be written as a start and a count of working days, and the
-        # estimate in force is the last of a list.
+        # Three answers the simple form asks for are not plain values in the
+        # card, so they are resolved here rather than guessed at in the
+        # browser: a bar may be written as a start and a count of working
+        # days, and so may a row of the timeline, and the estimate in force is
+        # the last of a list.
         span = declared_span(data)
         return self._send_json({
             'success': True,
@@ -249,6 +250,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             'body': body,
             'span': {'start': span[0].strftime('%Y-%m-%d'),
                      'end': span[1].strftime('%Y-%m-%d')} if span else None,
+            'tasks': task_form_rows(data),
             'estimate': latest_estimate(data),
             'raw_text': self.repository.read_raw(project_id),
         })

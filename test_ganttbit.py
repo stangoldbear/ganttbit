@@ -26,6 +26,7 @@ import unittest
 import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta
+from html import unescape as html_unescape
 from unittest import mock
 
 from ganttbit import (__version__, gantt, markup, schema,
@@ -33,9 +34,10 @@ from ganttbit import (__version__, gantt, markup, schema,
 from ganttbit.api import ApiError, delete_attachment, dispatch, upload_attachment
 from ganttbit.domain import (
     Timeline, band_position, chart_spans, declared_span, display_group,
-    format_date_long, format_relative, group_by_display, is_closed_group,
-    latest_estimate, project_estimates, project_milestones, project_span,
-    project_tasks, resolve_person, resolve_range, search_text,
+    due_state, format_date_long, format_relative, group_by_display,
+    is_closed_group, latest_estimate, note_values, project_estimates,
+    project_milestones, project_span, project_tasks, resolve_person,
+    resolve_range, roster_names, search_text, task_form_rows,
 )
 from ganttbit.cardmd import build_card, parse_card
 from ganttbit.migrate import (
@@ -594,6 +596,52 @@ class DomainTest(unittest.TestCase):
         # A deadline that is not a date has no distance to report.
         self.assertEqual(format_relative('mid October', TODAY, self.settings), '')
 
+    def test_a_due_date_is_a_signal_only_when_it_is_now_or_gone(self):
+        """The alert beside a note: today, tomorrow, overdue, and nothing else."""
+        def at(days):
+            return due_state((TODAY + timedelta(days=days)).isoformat(), TODAY)
+
+        self.assertEqual(at(0), 'today')
+        self.assertEqual(at(1), 'tomorrow')
+        self.assertEqual(at(-1), 'overdue')
+        self.assertEqual(at(-40), 'overdue')
+        self.assertEqual(at(2), '')
+        self.assertEqual(due_state('', TODAY), '')
+        self.assertEqual(due_state('mid October', TODAY), '')
+
+    def test_the_notes_offer_the_names_and_the_tags_they_carry(self):
+        """An open vocabulary: the roster first, then whoever a note names."""
+        cards = self.projects + [{'id': 'x', 'todos': [
+            {'id': 't-1', 'text': 'a', 'owners': ['Someone New', ' Ada Lovelace ', '']},
+            {'id': 't-2', 'text': 'b', 'owners': 'Only One', 'tags': ['ops', 'ops']},
+            'a bare line someone typed',
+        ], 'done': [{'id': 't-3', 'text': 'c', 'tags': ['legal']}]}]
+        names = roster_names(self.settings)
+        self.assertEqual(names[:2], ['Ada Lovelace', 'Grace Hopper'])
+        owners = note_values(cards, 'owners', names)
+        self.assertEqual(owners[:len(names)], names)
+        self.assertEqual(owners[len(names):], ['Someone New', 'Only One'])
+        self.assertEqual(note_values(cards, 'tags'),
+                         ['backend', 'contract', 'design', 'ops', 'legal'])
+
+    def test_the_rows_open_in_the_form_on_the_dates_the_chart_draws(self):
+        """A row written as a start and a count of days shows the end it draws."""
+        card = next(p for p in self.projects if p['id'] == 'project-1-navigation-menu')
+        rows = task_form_rows(card)
+        self.assertEqual([row['id'] for row in rows],
+                         [task['id'] for task in card['timeline']['tasks']])
+        self.assertEqual(rows[0]['who'], 'Ada Lovelace')
+        self.assertEqual((rows[0]['start'], rows[0]['end']), ('2026-08-24', '2026-10-09'))
+        # A row whose dates do not resolve keeps the text it has, and stays.
+        odd = task_form_rows({'timeline': {'tasks': [
+            {'id': 'task-1', 'who': 'Rita Levi', 'start': '2026-09-07', 'days': '15'},
+            {'id': 'task-2', 'who': 'Grace Hopper', 'start': 'soon', 'note': 'spike'},
+            'not a row']}})
+        self.assertEqual((odd[0]['start'], odd[0]['end']), ('2026-09-07', '2026-09-28'))
+        self.assertEqual(odd[1], {'id': 'task-2', 'who': 'Grace Hopper', 'start': 'soon',
+                                  'end': '', 'note': 'spike'})
+        self.assertEqual(len(odd), 2)
+
     def test_the_ramp_runs_end_to_end_over_the_list(self):
         self.assertEqual(band_position(0, 10), 0.0)
         self.assertEqual(band_position(9, 10), 100.0)
@@ -1102,6 +1150,139 @@ class SchemaAndApiTest(VaultTestCase):
         with self.assertRaises(ApiError):
             dispatch(self.repo, self.PROJECT, 'todo/add', {'text': '   '}, now=NOW)
 
+    def test_a_note_carries_a_title_owners_and_tags(self):
+        """The structured part of a note, written in reading order and never in the way."""
+        result = dispatch(self.repo, self.PROJECT, 'todo/add', {
+            'text': 'Chase the copy deck', 'deadline': '2026-10-01', 'title': ' Copy deck ',
+            'owners': 'Mary Jackson, Ada Lovelace, , Mary Jackson', 'tags': ['content', ''],
+        }, now=NOW)
+        todo = result['todo']
+        self.assertEqual(list(todo), ['id', 'title', 'text', 'deadline', 'owners', 'tags'])
+        self.assertEqual(todo['title'], 'Copy deck')
+        self.assertEqual(todo['owners'], ['Mary Jackson', 'Ada Lovelace'])
+        self.assertEqual(todo['tags'], ['content'])
+        # In the file, in that order, as lists.
+        raw = self.repo.read_raw(self.PROJECT)
+        self.assertIn('    - title: Copy deck\n    - text: Chase the copy deck\n'
+                      '    - deadline: 2026-10-01\n    - owners\n      - Mary Jackson\n'
+                      '      - Ada Lovelace\n    - tags\n      - content\n', raw)
+        # And found by the search, every one of them.
+        for value in ('Copy deck', 'Mary Jackson', 'content'):
+            self.assertIn(value, result['search'])
+
+        # A key the payload does not carry keeps what the note had; one it
+        # sends empty is cleared, and an empty one is not written at all.
+        dispatch(self.repo, self.PROJECT, 'todo/update',
+                 {'todo_id': todo['id'], 'text': 'Chase the copy deck, again'}, now=NOW)
+        kept = next(t for t in self.repo.load(self.PROJECT)[0]['todos'] if t['id'] == todo['id'])
+        self.assertEqual((kept['title'], kept['owners'], kept['deadline']),
+                         ('Copy deck', ['Mary Jackson', 'Ada Lovelace'], '2026-10-01'))
+        dispatch(self.repo, self.PROJECT, 'todo/update',
+                 {'todo_id': todo['id'], 'text': 'Chase it', 'title': '', 'owners': [],
+                  'tags': '', 'deadline': ''}, now=NOW)
+        bare = next(t for t in self.repo.load(self.PROJECT)[0]['todos'] if t['id'] == todo['id'])
+        self.assertEqual(bare, {'id': todo['id'], 'text': 'Chase it', 'deadline': ''})
+
+        # Completing a note moves the whole of it, and a key this code knows
+        # nothing about keeps its place after the rest.
+        dispatch(self.repo, self.PROJECT, 'set',
+                 {'path': f'todos.{todo["id"]}.text', 'value': 'Chase it'}, now=NOW)
+        dispatch(self.repo, self.PROJECT, 'todo/update',
+                 {'todo_id': todo['id'], 'text': 'Chase it', 'owners': ['Rita Levi']}, now=NOW)
+        dispatch(self.repo, self.PROJECT, 'todo/toggle', {'todo_id': todo['id']}, now=NOW)
+        done = next(t for t in self.repo.load(self.PROJECT)[0]['done'] if t['id'] == todo['id'])
+        self.assertEqual(done['owners'], ['Rita Levi'])
+        self.assertEqual(done['completed_at'], '2026-09-09 10:30')
+        dispatch(self.repo, self.PROJECT, 'todo/update',
+                 {'todo_id': todo['id'], 'text': 'Chased', 'tags': ['late']}, now=NOW)
+        done = next(t for t in self.repo.load(self.PROJECT)[0]['done'] if t['id'] == todo['id'])
+        self.assertEqual(list(done), ['id', 'text', 'deadline', 'owners', 'tags', 'completed_at'])
+
+    def test_no_row_table_asks_for_an_id_and_a_new_row_is_given_one(self):
+        """The identifier of a row is the format's business, never typed."""
+        for section in schema.row_sections(self.settings) + schema.simple_rows(self.settings):
+            self.assertNotIn('id', [column['key'] for column in section['columns']], section['key'])
+            self.assertTrue(section['row'])
+
+        before = self.repo.load(self.PROJECT)[0]
+        first = before['timeline']['tasks'][0]
+        self.assertEqual(first['flags'], ['crit', 'active'])
+        dispatch(self.repo, self.PROJECT, 'advanced-update', {'timeline': {'tasks': [
+            # A row that names its id is that row, in the columns it posted.
+            {'id': 'task-1', 'who': 'Ada Lovelace', 'note': 'Menu API v2, renamed'},
+            # A row without one is new, and gets one here.
+            {'who': 'Jean Bartik', 'start': '2026-10-19', 'end': '2026-10-30', 'note': 'test plan'},
+            # A row with every column empty is nothing, whatever its id.
+            {'id': 'task-2', 'who': '', 'note': ''},
+        ]}, 'milestones': [{'date': '2026-12-01', 'text': 'Freeze'}]}, now=NOW)
+        after = self.repo.load(self.PROJECT)[0]
+        tasks = after['timeline']['tasks']
+        self.assertEqual([task['who'] for task in tasks], ['Ada Lovelace', 'Jean Bartik'])
+        self.assertEqual(tasks[0]['note'], 'Menu API v2, renamed')
+        self.assertEqual(tasks[0]['flags'], ['crit', 'active'])        # not posted, not lost
+        self.assertEqual(tasks[0]['start'], first['start'])
+        self.assertEqual(tasks[1]['id'], f'task-{self.PROJECT}-6-{int(NOW.timestamp())}')
+        self.assertEqual(after['milestones'][0]['id'],
+                         f'milestone-{self.PROJECT}-3-{int(NOW.timestamp())}')
+        # The rows the payload did not mention are gone: the form showed them.
+        self.assertNotIn('task-3', [task['id'] for task in tasks])
+        # Every generated id is one step of a dotted path.
+        for row in tasks + after['milestones']:
+            self.assertNotIn('.', row['id'])
+
+    def test_the_simple_form_writes_the_timeline_rows_it_showed(self):
+        """Who, when, what: the rows of the form, merged into the rows of the card."""
+        # One row written the other way, as a start and a count of working days.
+        def in_days(data):
+            row = data['timeline']['tasks'][3]
+            row.pop('end')
+            row['days'] = '10'
+        self.repo.mutate(self.PROJECT, in_days)
+        card = self.repo.load(self.PROJECT)[0]
+        days_row = next(task for task in card['timeline']['tasks'] if 'days' in task)
+        shown = task_form_rows(card)
+        self.assertEqual(next(r['end'] for r in shown if r['id'] == days_row['id']), '2026-11-02')
+        posted = [row for row in shown if row['id'] != 'task-3']
+        posted[0]['who'] = 'Grace Hopper'
+        posted.append({'who': 'Jean Bartik', 'start': '2026-10-19', 'end': '2026-10-30',
+                       'note': 'test plan'})
+        dispatch(self.repo, self.PROJECT, 'simple-update',
+                 {'name': card['name'], 'timeline': {'tasks': posted}}, now=NOW)
+
+        after = self.repo.load(self.PROJECT)[0]
+        tasks = {task['id']: task for task in after['timeline']['tasks']}
+        self.assertNotIn('task-3', tasks)
+        self.assertEqual(tasks['task-1']['who'], 'Grace Hopper')
+        self.assertEqual(tasks['task-1']['flags'], ['crit', 'active'])
+        # The end the form showed is written down and `days` goes with it.
+        settled = tasks[days_row['id']]
+        self.assertNotIn('days', settled)
+        self.assertEqual(settled['end'], next(r['end'] for r in shown if r['id'] == days_row['id']))
+        self.assertEqual(len(tasks), len(card['timeline']['tasks']))     # one gone, one new
+        self.assertIn('Jean Bartik', [task['who'] for task in tasks.values()])
+        # The rest of the card, untouched by a save it was not part of.
+        self.assertEqual(after['risks_and_criticalities'], card['risks_and_criticalities'])
+
+        for rows, why in (
+            ([{'who': '', 'start': '2026-10-19', 'end': '2026-10-30'}], 'nobody'),
+            ([{'who': 'Rita Levi', 'start': '2026-10-19', 'end': ''}], 'half a span'),
+            ([{'who': 'Rita Levi', 'start': '2026-10-30', 'end': '2026-10-19'}], 'ends first'),
+            ([{'who': 'Rita Levi', 'start': 'soon', 'end': 'later'}], 'not dates'),
+        ):
+            with self.assertRaises(ApiError, msg=why):
+                dispatch(self.repo, self.PROJECT, 'simple-update',
+                         {'name': card['name'], 'timeline': {'tasks': rows}}, now=NOW)
+        # A row with no dates is somebody on the project and no bar yet: kept.
+        dispatch(self.repo, self.PROJECT, 'simple-update',
+                 {'name': card['name'], 'timeline': {'tasks': [{'who': 'Rita Levi'}]}}, now=NOW)
+        only = self.repo.load(self.PROJECT)[0]['timeline']['tasks']
+        self.assertEqual([task['who'] for task in only], ['Rita Levi'])
+        # An emptied table leaves no `- tasks` behind to read back as a group.
+        dispatch(self.repo, self.PROJECT, 'simple-update',
+                 {'name': card['name'], 'timeline': {'tasks': []}}, now=NOW)
+        self.assertNotIn('tasks', self.repo.load(self.PROJECT)[0]['timeline'])
+        self.assertNotIn('- tasks', self.repo.read_raw(self.PROJECT))
+
     def test_a_project_id_with_a_dot_still_edits_its_rows_from_the_tree(self):
         # The structure view addresses a value by a dotted path, and a row id
         # carries the project id: a dot in it used to split the path in the
@@ -1332,6 +1513,29 @@ class CreateProjectTest(VaultTestCase):
         self.assertIn('## Why', card['intro'])
         self.assertIsNotNone(project_span(card, self.settings))
 
+    def test_a_card_is_created_with_its_people_on_it(self):
+        """The rows typed into the form are on the card from the first save."""
+        dispatch(self.repo, '_batch', 'create', {
+            'name': 'Watch app', 'start': '2026-10-05', 'end': '2026-11-27',
+            'timeline': {'tasks': [
+                {'who': 'Rita Levi', 'start': '2026-10-05', 'end': '2026-10-30', 'note': 'watch face'},
+                {'who': '', 'start': '', 'end': '', 'note': ''},
+            ]},
+        }, now=NOW)
+        card, _ = self.repo.load('watch-app')
+        rows = project_tasks(card, self.settings)
+        self.assertEqual([row['who'] for row in rows], ['Rita Levi'])
+        self.assertEqual(card['timeline']['tasks'][0]['id'],
+                         f'task-watch-app-1-{int(NOW.timestamp())}')
+        with self.assertRaises(ApiError):
+            dispatch(self.repo, '_batch', 'create', {
+                'name': 'Nobody', 'timeline': {'tasks': [{'who': ' ', 'note': 'x'}]}}, now=NOW)
+        self.assertFalse(self.repo.exists('nobody'))
+        # And an empty table on a creation writes nothing at all.
+        dispatch(self.repo, '_batch', 'create',
+                 {'name': 'Alone', 'timeline': {'tasks': []}}, now=NOW)
+        self.assertNotIn('timeline', self.repo.load('alone')[0])
+
     def test_a_field_left_empty_is_not_written_at_all(self):
         """A creation has nothing to clear: an empty answer is no answer."""
         dispatch(self.repo, '_batch', 'create',
@@ -1517,6 +1721,15 @@ class GlobalTodosTest(VaultTestCase):
         self.assertIn('Chase the raw estimate', cards)
         self.assertNotIn('Finished business', cards)
 
+    def test_the_aggregated_rows_say_where_they_stand_in_their_card(self):
+        """The order the card lists them in is what *As listed* puts back."""
+        for text in ('first', 'second', 'third'):
+            dispatch(self.repo, 'inbox', 'todo/add', {'text': text}, now=NOW)
+        page = view.render_page(self.repo.list_all(), today=TODAY, settings=self.settings)
+        card = page.split('data-card="inbox"')[1].split('data-card="project-1')[0]
+        positions = re.findall(r'id="global-todo-row-inbox-[^"]+"[^>]*data-pos="(\d+)"', card)
+        self.assertEqual(positions, ['0', '1', '2'])
+
     def test_a_card_in_actions_and_notes_opens_its_project(self):
         page = view.render_page(self.repo.list_all(), today=TODAY, settings=self.settings)
         self.assertIn('data-action="go-project" data-project="project-1-navigation-menu"', page)
@@ -1663,13 +1876,136 @@ class ViewTest(unittest.TestCase):
         self.assertNotIn('\U0001F517 OPEN', detail)                 # no link button at all
         self.assertIn('value="javascript:alert(1)"', detail)   # kept as text, not as a link
 
-    def test_project_without_tasks_has_a_disabled_caret(self):
+    def test_a_project_without_rows_still_unfolds_to_the_place_for_one(self):
+        """Under every project's people, a line that adds one: the caret is never dead."""
         chart = gantt.render(self.projects,
                              Timeline(self.spans, settings=self.settings, today=TODAY),
                              detail_row=lambda project, group, at: '', settings=self.settings)
         button = chart.split('id="btn-toggle-proj-project-7-menu-endpoint"')[1].split('>')[0]
         self.assertIn('data-project="project-7-menu-endpoint"', button)
-        self.assertIn('disabled', button)
+        self.assertNotIn('disabled', button)
+
+        lines = re.findall(r'<tr class="resource-sub-row resource-sub-row--add"[^>]*>', chart)
+        self.assertEqual(len(lines), len(self.projects))
+        line = chart.split('data-proj-child="project-7-menu-endpoint"')[1].split('</tr>')[0]
+        self.assertIn('data-action="row-open"', line)
+        self.assertIn('data-task="new"', line)
+        # Opened on the project's own span, which is where a row usually sits.
+        span = project_span(next(p for p in self.projects if p['id'] == 'project-7-menu-endpoint'),
+                            self.settings)
+        self.assertIn(f'data-start="{span[0].strftime("%Y-%m-%d")}" '
+                      f'data-end="{span[1].strftime("%Y-%m-%d")}"', line)
+        # After the people and before the panel, so it folds with the people.
+        block = chart.split('data-proj-id="project-1-navigation-menu"')[1]
+        self.assertLess(block.index('resource-sub-row--add'), block.index('data-proj-id="project-2-eco-labels"'))
+        self.assertGreater(block.index('resource-sub-row--add'), block.index('data-task="task-5"'))
+
+    def test_the_project_row_carries_its_platforms_and_its_own_level_switch(self):
+        """What a project is, before who is on it; and the four levels over this one row."""
+        row = self.html.split('data-proj-id="project-2-eco-labels"')[1].split('</tr>')[0]
+        tags = re.findall(r'<span class="platform-tag">([^<]*)</span>', row)
+        self.assertEqual(tags, ['iOS', 'Android', 'Content'])
+        # Inside the signals, which Compact hides, and always there to patch.
+        self.assertIn('<span class="project-row__platforms">', row)
+        blank = self.html.split('data-proj-id="project-4-analytics-migration"')[1].split('</tr>')[0]
+        self.assertIn('<span class="project-row__platforms"></span>', blank)
+
+        levels = re.findall(r'data-action="project-depth" data-project="project-2-eco-labels" '
+                            r'data-depth="([a-z]+)"', row)
+        self.assertEqual(levels, ['compact', 'projects', 'people', 'details'])
+        # One edit per project, and it is the simple one: Advanced sits behind it.
+        actions = row.split('class="project-row__actions"')[1]
+        self.assertEqual(actions.count('data-action="simple-edit-open"'), 1)
+        self.assertNotIn('advanced-edit-open', actions)
+        self.assertNotIn('data-action="toggle-detail"', actions)
+
+    def test_the_panel_offers_one_edit_and_the_advanced_editor_still_exists(self):
+        detail = view.render_detail_row(self.projects[0], 'live', settings=self.settings)
+        header = detail.split('class="detail-header"')[1].split('</div>')[0]
+        self.assertIn('data-action="simple-edit-open"', header)
+        self.assertNotIn('advanced-edit-open', header)
+        self.assertIn('data-action="toggle-detail"', header)              # Close
+        # The overlay is still on the page, reached from inside the simple form.
+        self.assertIn('id="advanced-edit-overlay"', self.html)
+        self.assertNotIn('data-action="advanced-edit-open"', self.html)
+        # The panel's own Add opens on the span too.
+        self.assertIn('data-task="new" data-who="" data-note="" data-start="2026-08-24" '
+                      'data-end="2026-11-20"', detail)
+
+    def test_the_toolbar_offers_the_four_levels_over_the_chart(self):
+        levels = re.findall(r'data-action="depth" data-depth="([a-z]+)"', self.html)
+        self.assertEqual(levels, ['compact', 'projects', 'people', 'details'])
+
+    def test_a_note_shows_its_title_owners_tags_and_whether_it_is_due(self):
+        """The row carries what the browser sorts, filters and groups on."""
+        card = {'id': 'x', 'name': 'X', 'todos': [
+            {'id': 't-1', 'title': 'Copy <deck>', 'text': 'Chase it', 'deadline': TODAY.isoformat(),
+             'owners': ['Mary Jackson', 'Ada Lovelace'], 'tags': ['content']},
+            {'id': 't-2', 'text': 'Tomorrow', 'deadline': (TODAY + timedelta(days=1)).isoformat()},
+            {'id': 't-3', 'text': 'Late', 'deadline': (TODAY - timedelta(days=3)).isoformat()},
+            {'id': 't-4', 'text': 'Later', 'deadline': (TODAY + timedelta(days=9)).isoformat()},
+            {'id': 't-5', 'text': 'Whenever', 'deadline': ''},
+        ], 'done': [{'id': 't-6', 'text': 'Done', 'deadline': TODAY.isoformat(),
+                     'completed_at': '2026-09-01 10:00', 'owners': ['Rita Levi']}]}
+        detail = view.render_detail_row(card, 'live', settings=self.settings, today=TODAY)
+
+        def row(todo_id):
+            """The row from its id to its delete button, which is its last piece."""
+            return detail.split(f'id="todo-row-x-{todo_id}"')[1].split('data-action="todo-delete"')[0]
+
+        first = row('t-1')
+        self.assertIn('<strong class="todo-title">Copy &lt;deck&gt;</strong>', first)
+        self.assertIn('<span class="todo-owner">Mary Jackson</span>'
+                      '<span class="todo-owner">Ada Lovelace</span>'
+                      '<span class="todo-tag">content</span>', first)
+        self.assertIn('data-title="Copy &lt;deck&gt;"', first)
+        self.assertIn('data-owners="[&quot;Mary Jackson&quot;, &quot;Ada Lovelace&quot;]"', first)
+        self.assertIn('data-tags="[&quot;content&quot;]"', first)
+        self.assertIn('data-pos="0"', first)
+        self.assertIn('data-due="today"', first)
+        self.assertIn('class="todo-alert" data-due="today" title="Due today"', first)
+        # The alert sits between the checkbox and the text.
+        self.assertLess(first.index('todo-check'), first.index('todo-alert'))
+        self.assertLess(first.index('todo-alert'), first.index('todo-title'))
+
+        self.assertIn('data-due="tomorrow"', row('t-2'))
+        self.assertIn('title="Due tomorrow"', row('t-2'))
+        self.assertIn('data-due="overdue"', row('t-3'))
+        self.assertIn('title="Overdue"', row('t-3'))
+        for quiet in ('t-4', 't-5', 't-6'):
+            self.assertNotIn('data-due=', row(quiet), quiet)
+            self.assertNotIn('todo-alert', row(quiet), quiet)
+        self.assertIn('data-pos="4"', row('t-5'))
+        # A note with none of it is the row it always was, with the data empty.
+        self.assertIn('data-title="" data-owners="[]" data-tags="[]"', row('t-5'))
+        self.assertNotIn('todo-title', row('t-5'))
+        self.assertNotIn('todo-meta', row('t-5'))
+        # The composer asks for the same things, and names its vocabularies.
+        self.assertIn('id="new-todo-title-x"', detail)
+        self.assertIn('id="new-todo-owners-x" class="form-input" data-suggest="owners"', detail)
+        self.assertIn('id="new-todo-tags-x" class="form-input" data-suggest="tags"', detail)
+
+    def test_the_notes_toolbar_offers_the_orders_the_owners_and_the_grouping(self):
+        box = self.html.split('<div class="global-todos-box"')[1].split('<div class="gantt-box"')[0]
+        self.assertEqual(re.findall(r'data-action="notes-sort" data-sort="([a-z-]+)"', box),
+                         ['asis', 'due', 'due-desc'])
+        self.assertIn('id="notes-group" data-action="notes-group" aria-pressed="false"', box)
+        # The filter lists the owners a note names, and nobody else.
+        menu = re.search(r'<details class="filter-menu" id="owner-filter">.*?</details>', box, re.S).group(0)
+        offered = re.findall(r'data-change="owner-filter" value="([^"]*)"', menu)
+        self.assertEqual(offered, ['Ada Lovelace', 'Grace Hopper', 'Mary Jackson'])
+        self.assertIn('data-action="owner-filter-clear"', menu)
+        # The vocabularies travel once, on the box: the roster first, then the notes'.
+        owners = json.loads(html_unescape(re.search(r'data-owners="([^"]*)"', box).group(1)))
+        self.assertEqual(owners[:len(roster_names(self.settings))], roster_names(self.settings))
+        tags = json.loads(html_unescape(re.search(r'data-tags="([^"]*)"', box).group(1)))
+        self.assertEqual(tags, ['backend', 'contract', 'design'])
+        # The alert the browser clones for a note it builds, drawn once.
+        self.assertIn('<template id="todo-alert-template"><span class="todo-alert"', box)
+        self.assertIn('id="global-todos-owners"', box)
+        self.assertLess(box.index('id="global-todos-owners"'), box.index('id="global-todos-cards"'))
+        # The inbox composer carries the same fields.
+        self.assertIn('id="new-todo-owners-inbox"', box)
 
     def test_layout_metrics_travel_as_css_variables(self):
         self.assertIn('--label-w:340px', self.html)
@@ -1977,12 +2313,26 @@ class ServerTest(VaultTestCase):
         platforms = next(entry for entry in payload['simple']
                          if entry['param'] == 'platforms')
         self.assertIn('iOS', platforms['suggest'])
+        # The simple form's row table, drawn by the same editor as the
+        # advanced form's, with two dates and no id to type.
+        table = payload['simple_rows'][0]
+        self.assertEqual(table['path'], 'timeline.tasks')
+        self.assertEqual([(c['key'], c['kind']) for c in table['columns']],
+                         [('who', 'text'), ('start', 'date'), ('end', 'date'), ('note', 'text')])
+        for section in payload['sections']:
+            if section.get('kind') == 'rows':
+                self.assertNotIn('id', [c['key'] for c in section['columns']], section['key'])
 
     def test_raw_endpoint_returns_data_body_and_text(self):
         payload = json.loads(self.get('/api/project/project-1-navigation-menu/raw')[1])
         self.assertEqual(payload['data']['id'], 'project-1-navigation-menu')
         self.assertIn('Phase 1', payload['body'])
         self.assertTrue(payload['raw_text'].startswith('# Navigation menu'))
+        # The rows as the simple form shows them, resolved to two dates each.
+        self.assertEqual(payload['tasks'][0],
+                         {'id': 'task-1', 'who': 'Ada Lovelace', 'start': '2026-08-24',
+                          'end': '2026-10-09', 'note': 'Menu API v2'})
+        self.assertEqual(len(payload['tasks']), len(payload['data']['timeline']['tasks']))
 
     def test_the_hierarchy_page_and_its_snapshot(self):
         status, body, _ = self.get('/hierarchy')

@@ -29,9 +29,70 @@ from .domain import (
 )
 from .markup import attrs, ensure_list, esc, icon
 
+# How much of the chart is unfolded, from the toolbar over the whole chart and
+# from the switch every project row carries over itself: (key, label, what the
+# level means for the chart, what it means for one project). Four levels, one
+# glyph each, and the same four on the hierarchy page.
+DEPTH_LEVELS = (
+    ('compact', 'Compact',
+     'One line per project: the order, the name and its span',
+     'One line: the name and the span'),
+    ('projects', 'Projects',
+     'Every project with its status, deadline and platforms',
+     'The status, the deadline and the platforms'),
+    ('people', 'Stakeholders',
+     'Every project and the people on it',
+     'The people on it, and where to add one'),
+    ('details', 'All details',
+     'Show everything, including the notes and actions of every project',
+     'Everything, the notes and actions included'),
+)
+
+
 def caret(open_state=True):
     """The one collapse glyph: an SVG chevron, turned by CSS when it closes."""
     return f'<span class="caret{"" if open_state else " is-closed"}">{icon("caret")}</span>'
+
+
+def depth_switch(action='depth', dom_id='depth-switch'):
+    """
+    Four levels, not four toggles, over the whole chart.
+
+    A toggle answers "what is it now?", which is the one thing a toolbar cannot
+    know when half the chart is collapsed and half is not. A level is absolute:
+    it always means the same thing and always does it.
+
+    Compact is the stylesheet's job alone: the rows keep every attribute they
+    have, and a class on the row tells the chart to stop drawing what a ranked
+    reading does not need. No second markup, no second state.
+    """
+    buttons = ''.join(
+        f'<button type="button" class="tab" data-action="{action}" data-depth="{key}" '
+        f'title="{esc(title)}" aria-label="{esc(title)}">{icon("level-" + key)}{esc(label)}'
+        f'</button>'
+        for key, label, title, _own in DEPTH_LEVELS
+    )
+    return f'<div class="tabs tabs--sm" id="{dom_id}">{buttons}</div>'
+
+
+def _row_depth_switch(project_id, name):
+    """
+    The same four levels, over one project.
+
+    What the toolbar does to every row, this does to the row it sits on: fold
+    the people away, show them, open the notes under them. It took the place
+    of the button that only opened the notes, because that was one of the
+    four and the other three were a toolbar away.
+    """
+    buttons = ''.join(
+        f'<button type="button" class="tab" data-action="project-depth" '
+        f'data-project="{esc(project_id)}" data-depth="{key}" '
+        f'title="{esc(label)}: {esc(own)}" aria-label="{esc(label)}, {esc(name)}">'
+        f'{icon("level-" + key)}</button>'
+        for key, label, _title, own in DEPTH_LEVELS
+    )
+    return (f'<span class="tabs tabs--sm row-depth" role="group" '
+            f'aria-label="How much of {esc(name)} to show">{buttons}</span>')
 
 
 def render(projects, timeline, *, detail_row, settings=None):
@@ -217,6 +278,11 @@ def _project_block(project, group, at, timeline, detail_row, config):
     rows = [_project_row(project, group, at, rows_of_project, timeline, config)]
     rows.extend(_resource_row(project['id'], group, at, task, timeline, config)
                 for task in rows_of_project)
+    # After the people, the place for one more: a line of the same shape that
+    # opens the row dialog, so a project with nobody on it yet still unfolds
+    # to something at the Stakeholders level, and the first row is written
+    # from the chart rather than from a form behind it.
+    rows.append(_add_row(project, group, at, config))
     rows.append(detail_row(project, group, at))
     return rows
 
@@ -259,7 +325,6 @@ def _project_row(project, group, at, rows_of_project, timeline, config):
     if status == 'blocked' and reason:
         tooltip = f'<span class="blocked-tooltip"><strong>Blocked:</strong> {esc(reason)}</span>'
 
-    disabled = '' if rows_of_project else ' disabled'
     bar = _summary_bar(project, timeline, status, config)
     warning = _warning(any(task['outside'] for task in rows_of_project),
                        'A task on this project falls outside the span it declares')
@@ -278,14 +343,17 @@ def _project_row(project, group, at, rows_of_project, timeline, config):
     filter_data = (f' data-platforms="{esc(json.dumps(platforms))}"'
                    f' data-search="{esc(search_text(project))}"')
 
-    # One line: identity, then the two things that change (status, deadline),
-    # then the row actions, which only appear on hover or keyboard focus.
+    # One line: identity, then the two signals (status, deadline) and the
+    # platforms after them, then the row actions, which only appear on hover
+    # or keyboard focus: the level switch for this one project, and Edit.
+    # Advanced edit is not here: it is reached from inside the simple form,
+    # so a project has one way in, and the second editor sits behind it.
     return f'''<tr class="project-main-row" data-group-child="{esc(group)}" data-proj-id="{esc(project_id)}" data-status="{esc(status)}"{filter_data} style="--at:{at:.2f}%" draggable="true">
   <td class="sticky-col project-cell">
     <div class="project-line project-line--head">
       <div class="project-identity">
         <span class="drag-handle" title="Drag to reorder">{icon('grip')}</span>
-        <button type="button" class="btn btn--ghost btn--sm btn--icon" id="btn-toggle-proj-{esc(project_id)}" data-action="toggle-project" data-project="{esc(project_id)}" title="Collapse or expand the resources" aria-label="Collapse or expand the resources of {esc(name)}"{disabled}>{caret()}</button>
+        <button type="button" class="btn btn--ghost btn--sm btn--icon" id="btn-toggle-proj-{esc(project_id)}" data-action="toggle-project" data-project="{esc(project_id)}" title="Collapse or expand the resources" aria-label="Collapse or expand the resources of {esc(name)}">{caret()}</button>
         <span class="prio-badge">{esc(project.get('priority', ''))}</span>
         <strong class="project-title" role="button" tabindex="0" title="{esc(project_id)} — click to rename" data-action="project-title" data-project="{esc(project_id)}" data-name="{esc(name)}">{esc(name)}</strong>{warning}
       </div>
@@ -295,16 +363,56 @@ def _project_row(project, group, at, rows_of_project, timeline, config):
           {tooltip}
         </span>
         <span class="deadline-pill" style="background:{deadline_style['bg']};color:{deadline_style['fg']}">{esc(format_date_long(deadline_raw, config))} [{esc(deadline_type.upper())}]</span>
+        {_platform_tags(platforms)}
       </span>
       <span class="project-row__actions">
+        {_row_depth_switch(project_id, name)}
         <button type="button" class="btn btn--ghost btn--sm btn--icon" title="Edit" aria-label="Edit {esc(name)}" data-action="simple-edit-open" data-project="{esc(project_id)}">{icon('pencil')}</button>
-        <button type="button" class="btn btn--ghost btn--sm btn--icon" title="Notes &amp; actions" aria-label="Notes and actions for {esc(name)}" data-action="toggle-detail" data-project="{esc(project_id)}">{icon('panel')}</button>
-        <button type="button" class="btn btn--ghost btn--sm btn--icon" title="Advanced edit" aria-label="Advanced edit of {esc(name)}" data-action="advanced-edit-open" data-project="{esc(project_id)}">{icon('sliders')}</button>
       </span>
     </div>
   </td>
   <td class="timeline-cell">
     <div class="timeline-row timeline-row--project" data-lane="{esc(project_id)}">{bar}{_milestones(project, timeline, config)}</div>
+  </td>
+</tr>'''
+
+
+def _platform_tags(platforms):
+    """
+    The platforms a project touches, as tags on its row.
+
+    They belong to the Projects level, after the status and the deadline: the
+    two signals first, then what the project touches. The span is always
+    rendered, empty or not, because a tick in the panel patches it in place.
+    """
+    tags = ''.join(f'<span class="platform-tag">{esc(name)}</span>' for name in platforms)
+    return f'<span class="project-row__platforms">{tags}</span>'
+
+
+def _add_row(project, group, at, config):
+    """
+    The last line under a project's people: where the next one is added.
+
+    The same shape as a resource row and the same dialog its people open,
+    with nothing in it but the project's own span to start from. It folds
+    with the people, so it is there at Stakeholders and All details and gone
+    at Projects and Compact, and it is why a project with no rows still has
+    something to unfold.
+    """
+    project_id = project['id']
+    name = project.get('name', project_id)
+    drawn = project_span(project, config)
+    start = drawn[0].strftime('%Y-%m-%d') if drawn else ''
+    end = drawn[1].strftime('%Y-%m-%d') if drawn else ''
+    return f'''<tr class="resource-sub-row resource-sub-row--add" data-group-child="{esc(group)}" data-proj-child="{esc(project_id)}" style="--at:{at:.2f}%">
+  <td class="sticky-col resource-cell">
+    <div class="resource-line resource-line--add" role="button" tabindex="0" title="Add a timeline row to {esc(name)}" data-action="row-open"{attrs(project=project_id, task='new', who='', note='')} data-start="{start}" data-end="{end}">
+      <span class="resource-line__branch">└─</span>
+      {icon('plus')}<span>Add a timeline row</span>
+    </div>
+  </td>
+  <td class="timeline-cell">
+    <div class="timeline-row timeline-row--resource"></div>
   </td>
 </tr>'''
 

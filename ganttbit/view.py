@@ -7,6 +7,7 @@ custom properties so neither side restates a number the other owns.
 """
 
 import json
+from datetime import date
 from urllib.parse import quote
 
 from . import __version__, gantt, settings as settings_module
@@ -16,6 +17,7 @@ from .domain import (
     band_position,
     chart_spans,
     declared_span,
+    due_state,
     format_date_long,
     format_relative,
     group_by_display,
@@ -25,16 +27,19 @@ from .domain import (
     is_closed_group,
     latest_estimate,
     is_display_group,
+    note_list,
+    note_values,
     project_estimates,
     project_milestones,
     project_span,
     project_tasks,
     resolve_range,
     resolve_zoom,
+    roster_names,
     used_values,
 )
 from .cardmd import NOTES_HEADING
-from .gantt import caret
+from .gantt import caret, depth_switch
 from .markup import (
     attrs, ensure_list, esc, human_size, icon, join_url, render_markdown, safe_url,
     select,
@@ -85,37 +90,112 @@ def _link_chip(value, base_url, link_class):
     return (f'<a class="{link_class}" href="{esc(href)}" target="_blank" '
             f'rel="noopener noreferrer">{icon("link")}{esc(text)}</a>')
 
-def _todo_row(project_id, todo, *, done, dom_prefix):
+_DUE_WORDS = {'overdue': 'Overdue', 'today': 'Due today', 'tomorrow': 'Due tomorrow'}
+
+
+def _due_alert(state):
+    """
+    The one loud thing on a note: it is due now, or it was.
+
+    Drawn to the left of the text, where the eye lands first, and only when
+    the date is today, tomorrow or already gone: a signal, in the warning
+    hue, with the word beside it for anyone who cannot see the hue.
+    """
+    if not state:
+        return ''
+    word = _DUE_WORDS[state]
+    return (f'<span class="todo-alert" data-due="{esc(state)}" title="{esc(word)}" '
+            f'aria-label="{esc(word)}">{icon("warning")}</span>')
+
+
+def _note_chips(owners, tags):
+    """Who a note is for and what it is about, as chips under its text."""
+    chips = ''.join(f'<span class="todo-owner">{esc(name)}</span>' for name in owners)
+    chips += ''.join(f'<span class="todo-tag">{esc(tag)}</span>' for tag in tags)
+    return f'<span class="todo-meta">{chips}</span>' if chips else ''
+
+
+def _todo_row(project_id, todo, *, done, dom_prefix, today=None, position=0):
+    """
+    One note: what it is called, what it says, when, for whom, what about.
+
+    Everything the browser sorts, filters and groups on travels on the row as
+    data: the due date, the owners and the tags as JSON, and its position in
+    the card, which is the order it was written or dragged to. The browser
+    rebuilds a row it patches from the same contract (app.js: buildTodoRow).
+    """
     todo_id = todo.get('id', '')
     text = todo.get('text', '')
     deadline = todo.get('deadline', '')
+    title = str(todo.get('title', '') or '').strip()
+    owners = note_list(todo, 'owners')
+    tags = note_list(todo, 'tags')
 
     if done:
         completed = format_date_long(todo.get('completed_at', ''))
         badge = f'<span class="todo-done-at">{esc(completed)}</span>' if completed else ''
+        due = ''
     else:
         formatted = format_date_long(deadline)
         badge = f'<span class="todo-dl">{esc(formatted)}</span>' if formatted else ''
+        due = due_state(deadline, today)
 
     checked = ' checked' if done else ''
     text_class = 'todo-text done' if done else 'todo-text'
     row_class = 'todo-item-row done' if done else 'todo-item-row'
     target = attrs(project=project_id, todo=todo_id)
+    heading = f'<strong class="todo-title">{esc(title)}</strong>' if title else ''
+    due_attr = f' data-due="{esc(due)}"' if due else ''
 
     draggable = '' if done else ' draggable="true"'
-    return f'''<div class="{row_class}" id="{dom_prefix}-{esc(project_id)}-{esc(todo_id)}" data-text="{esc(text)}" data-dl="{esc(deadline)}"{target}{draggable}>
+    return f'''<div class="{row_class}" id="{dom_prefix}-{esc(project_id)}-{esc(todo_id)}" data-text="{esc(text)}" data-dl="{esc(deadline)}" data-title="{esc(title)}" data-owners="{esc(json.dumps(owners))}" data-tags="{esc(json.dumps(tags))}" data-pos="{position}"{due_attr}{target}{draggable}>
   <label class="todo-check"><input type="checkbox"{checked} data-action="todo-toggle"{target}></label>
-  <span class="{text_class}" title="Double-click to edit">{render_markdown(text)}</span>
+  {_due_alert(due)}
+  <span class="todo-body">
+    {heading}<span class="{text_class}" title="Double-click to edit">{render_markdown(text)}</span>
+    {_note_chips(owners, tags)}
+  </span>
   {badge}
   <button type="button" class="btn btn--ghost btn--sm btn--icon btn--danger" title="Delete" aria-label="Delete this note" data-action="todo-delete"{target}>✕</button>
 </div>'''
 
 
-def _todo_list(project_id, todos, *, done, dom_prefix, empty_label):
+def _todo_list(project_id, todos, *, done, dom_prefix, empty_label, today=None):
     if not todos:
         return f'<div class="todo-empty">{esc(empty_label)}</div>'
-    return ''.join(_todo_row(project_id, todo, done=done, dom_prefix=dom_prefix)
-                   for todo in todos)
+    return ''.join(_todo_row(project_id, todo, done=done, dom_prefix=dom_prefix,
+                             today=today, position=position)
+                   for position, todo in enumerate(todos))
+
+
+def _composer(project_id, *, placeholder, inbox=False):
+    """
+    Where a note is written: a title, the text, who and what for, and when.
+
+    One composer for the panel and for the inbox card. The title is above the
+    text because it is read first; the owners and the tags are open
+    vocabularies offered under the field (the roster and every name typed
+    since, and every tag typed), which the page carries once and the script
+    reads by name.
+    """
+    extra = ' add-todo-form--inbox' if inbox else ''
+    label = 'New note for the inbox' if inbox else 'New note or action'
+    return f'''<div class="add-todo-form{extra}">
+    <input type="text" id="new-todo-title-{esc(project_id)}" class="form-input add-todo-form__title" placeholder="Title (optional)" aria-label="Title of the note">
+    <textarea id="new-todo-text-{esc(project_id)}" class="add-todo-form__textarea" placeholder="{esc(placeholder)}" aria-label="{label}"></textarea>
+    <div class="add-todo-form__row add-todo-form__row--meta">
+      <label class="note-field"><span class="field-label">Owners</span>
+        <input type="text" id="new-todo-owners-{esc(project_id)}" class="form-input" data-suggest="owners" placeholder="Names, comma separated" aria-label="Owners"></label>
+      <label class="note-field"><span class="field-label">Tags</span>
+        <input type="text" id="new-todo-tags-{esc(project_id)}" class="form-input" data-suggest="tags" placeholder="Comma separated" aria-label="Tags"></label>
+    </div>
+    <div class="add-todo-form__row">
+      <label class="due-field"><span class="field-label">Due</span>
+        <input type="date" id="new-todo-dl-{esc(project_id)}" class="form-input form-input--date" aria-label="Due date"></label>
+      <button type="button" class="btn btn--default btn--sm" data-action="todo-add" data-project="{esc(project_id)}">Save</button>
+      <button type="button" class="btn btn--secondary btn--sm" data-action="todo-add-cancel" data-project="{esc(project_id)}">Cancel</button>
+    </div>
+  </div>'''
 
 
 def _link_row(project_id, kind, value, *, placeholder, param):
@@ -169,7 +249,7 @@ def _attachment_rows(project_id, attachments):
 
 
 # ─── Project detail panel ────────────────────────────────────────────────────
-def render_detail_row(project, group, at=100.0, settings=None):
+def render_detail_row(project, group, at=100.0, settings=None, today=None):
     config = settings or settings_module.current()
     project_id = project['id']
     name = project.get('name', project_id)
@@ -298,7 +378,7 @@ def render_detail_row(project, group, at=100.0, settings=None):
           <span class="detail-header__actions">
             <button type="button" class="btn btn--outline btn--sm" data-action="project-rename" data-project="{esc(project_id)}" data-name="{esc(name)}" title="Rename this project">{icon('pencil')}Rename</button>
             <button type="button" class="btn btn--outline btn--sm" data-action="project-move" data-project="{esc(project_id)}" title="Move this project">{icon('grip')}Move</button>
-            <button type="button" class="btn btn--outline btn--sm" data-action="advanced-edit-open" data-project="{esc(project_id)}" title="Every field of this project">{icon('sliders')}Advanced</button>
+            <button type="button" class="btn btn--outline btn--sm" data-action="simple-edit-open" data-project="{esc(project_id)}" title="Edit this project; Advanced edit is inside">{icon('pencil')}Edit</button>
             <button type="button" class="btn btn--secondary btn--sm" data-action="toggle-detail" data-project="{esc(project_id)}">Close</button>
           </span>
         </div>
@@ -387,7 +467,7 @@ def render_detail_row(project, group, at=100.0, settings=None):
             <div class="detail-field">
               <div class="field-heading">
                 <span class="field-label">Timeline ({len(rows)})</span>
-                <button type="button" class="btn btn--outline btn--sm" data-action="row-open" data-project="{esc(project_id)}" data-task="new" data-who="" data-note="" data-start="" data-end="">{icon('plus')}Add</button>
+                <button type="button" class="btn btn--outline btn--sm" data-action="row-open" data-project="{esc(project_id)}" data-task="new" data-who="" data-note="" data-start="{span_start}" data-end="{span_end}">{icon('plus')}Add</button>
               </div>
               <div class="chips">{row_chips}</div>
             </div>
@@ -409,21 +489,13 @@ def render_detail_row(project, group, at=100.0, settings=None):
           <div class="detail-col">
             <div class="detail-field">
               <label for="new-todo-text-{esc(project_id)}">Project action to-do list (<span id="todos-count-{esc(project_id)}">{len(todos)}</span>)</label>
-              <div class="todos-box" id="todos-container-{esc(project_id)}">{_todo_list(project_id, todos, done=False, dom_prefix='todo-row', empty_label='No open note or action.')}</div>
-              <div class="add-todo-form">
-                <textarea id="new-todo-text-{esc(project_id)}" class="add-todo-form__textarea" placeholder="New note / action item..."></textarea>
-                <div class="add-todo-form__row">
-                  <label class="due-field"><span class="field-label">Due</span>
-                    <input type="date" id="new-todo-dl-{esc(project_id)}" class="form-input form-input--date" aria-label="Due date"></label>
-                  <button type="button" class="btn btn--default btn--sm" data-action="todo-add" data-project="{esc(project_id)}">Save</button>
-                  <button type="button" class="btn btn--secondary btn--sm" data-action="todo-add-cancel" data-project="{esc(project_id)}">Cancel</button>
-                </div>
-              </div>
+              <div class="todos-box" id="todos-container-{esc(project_id)}">{_todo_list(project_id, todos, done=False, dom_prefix='todo-row', empty_label='No open note or action.', today=today)}</div>
+              {_composer(project_id, placeholder='New note / action item...')}
             </div>
 
             <div class="detail-field">
               <button type="button" class="btn btn--outline btn--sm btn--wide" id="btn-hist-{esc(project_id)}" data-action="toggle-history" data-project="{esc(project_id)}"><span class="hist-label">Completed actions (<span class="hist-count">{len(history)}</span>)</span>{caret()}</button>
-              <div class="history-box" id="history-box-{esc(project_id)}" data-proj-id="{esc(project_id)}" style="display:none">{_todo_list(project_id, history, done=True, dom_prefix='todo-row', empty_label='Nothing in the history yet.')}</div>
+              <div class="history-box" id="history-box-{esc(project_id)}" data-proj-id="{esc(project_id)}" style="display:none">{_todo_list(project_id, history, done=True, dom_prefix='todo-row', empty_label='Nothing in the history yet.', today=today)}</div>
             </div>
           </div>
         </div>
@@ -440,7 +512,7 @@ def split_inbox(projects):
     return inbox, [p for p in projects if p is not inbox]
 
 
-def render_global_todos(projects, settings=None, inbox=None):
+def render_global_todos(projects, settings=None, inbox=None, today=None):
     """
     Open actions, in priority order, the inbox first.
 
@@ -462,36 +534,36 @@ def render_global_todos(projects, settings=None, inbox=None):
         total_done += len(history)
         if todos or history:
             cards.append(_todo_card(project, band_position(index, len(listed)),
-                                    todos, history, config))
+                                    todos, history, config, today))
 
     inbox_todos = (inbox or {}).get('todos') or []
     inbox_done = (inbox or {}).get('done') or []
     total_active += len(inbox_todos)
     total_done += len(inbox_done)
-    cards.insert(0, _inbox_card(inbox_todos, inbox_done))
+    cards.insert(0, _inbox_card(inbox_todos, inbox_done, today))
 
     return ''.join(cards), total_active, total_done
 
 
-def _todo_sections(project_id, todos, history):
+def _todo_sections(project_id, todos, history, today=None):
     sections = ''
     if todos:
         sections += ('<div class="todo-group" data-group="open">'
                      '<div class="todo-group-label">Open actions</div>'
                      + _todo_list(project_id, todos, done=False,
-                                  dom_prefix='global-todo-row', empty_label='')
+                                  dom_prefix='global-todo-row', empty_label='', today=today)
                      + '</div>')
 
     if history:
         sections += ('<div class="todo-group" data-group="done">'
                      '<div class="todo-group-label todo-group-label--history">Completed</div>'
                      + _todo_list(project_id, history, done=True,
-                                  dom_prefix='global-todo-row', empty_label='')
+                                  dom_prefix='global-todo-row', empty_label='', today=today)
                      + '</div>')
     return sections
 
 
-def _todo_card(project, at, todos, history, config):
+def _todo_card(project, at, todos, history, config, today=None):
     project_id = project['id']
     name = project.get('name', project_id)
 
@@ -500,11 +572,11 @@ def _todo_card(project, at, todos, history, config):
     <strong class="global-todo-card__title" title="{esc(project_id)}">{esc(name)}</strong>
     <button type="button" class="btn btn--ghost btn--sm" data-action="go-project" data-project="{esc(project_id)}" title="Open the project with these notes">{icon('panel')}Open project</button>
   </div>
-  {_todo_sections(project_id, todos, history)}
+  {_todo_sections(project_id, todos, history, today)}
 </div>'''
 
 
-def _inbox_card(todos, history):
+def _inbox_card(todos, history, today=None):
     """
     The notes of no project, first and always there.
 
@@ -517,27 +589,56 @@ def _inbox_card(todos, history):
     <strong class="global-todo-card__title" title="{esc(project_id)}">{esc(settings_module.INBOX_TITLE)}</strong>
     <span class="global-todo-card__hint">Notes of no project</span>
   </div>
-  <div class="add-todo-form add-todo-form--inbox">
-    <textarea id="new-todo-text-{esc(project_id)}" class="add-todo-form__textarea" placeholder="A note or an action, for no project in particular" aria-label="New note for the inbox"></textarea>
-    <div class="add-todo-form__row">
-      <label class="due-field"><span class="field-label">Due</span>
-        <input type="date" id="new-todo-dl-{esc(project_id)}" class="form-input form-input--date" aria-label="Due date"></label>
-      <button type="button" class="btn btn--default btn--sm" data-action="todo-add" data-project="{esc(project_id)}">Save</button>
-      <button type="button" class="btn btn--secondary btn--sm" data-action="todo-add-cancel" data-project="{esc(project_id)}">Cancel</button>
-    </div>
-  </div>
-  {_todo_sections(project_id, todos, history)}
+  {_composer(project_id, placeholder='A note or an action, for no project in particular', inbox=True)}
+  {_todo_sections(project_id, todos, history, today)}
 </div>'''
 
 
-# ─── Toolbar ─────────────────────────────────────────────────────────────────
-_DEPTH_LEVELS = (
-    ('compact', 'Compact', 'One line per project: the order, the name and its span'),
-    ('projects', 'Projects', 'Every project with its status and deadline'),
-    ('people', 'Stakeholders', 'Every project and the people on it'),
-    ('details', 'All details', 'Show everything, including the notes and actions '
-                               'of every project'),
+_NOTE_ORDERS = (
+    ('asis', 'As listed', 'In the order they were written, or dragged to'),
+    ('due', 'Soonest first', 'By due date, the soonest first; a note with no date last'),
+    ('due-desc', 'Latest first', 'By due date, the latest first; a note with no date last'),
 )
+
+
+def _notes_toolbar(owners):
+    """
+    How the open notes are read: in what order, whose, and grouped by whom.
+
+    Three orders over the open actions of every card: as the card lists them,
+    which is the order they were written or dragged to, or by due date either
+    way, a note with no date always last, because it has no place on the
+    time axis. An owner filter, the same menu as the platforms over the
+    chart, listing whoever a note names. And *By owner*, which turns the list
+    inside out: one section per person, every project's notes together, in
+    the order chosen. The browser does all three and remembers them per
+    browser, like the chart's own filters.
+    """
+    orders = ''.join(
+        f'<button type="button" class="tab" data-action="notes-sort" data-sort="{key}" '
+        f'title="{esc(title)}" aria-pressed="false">{esc(label)}</button>'
+        for key, label, title in _NOTE_ORDERS
+    )
+    options = ''.join(
+        f'<label class="filter-menu__option"><input type="checkbox" '
+        f'data-change="owner-filter" value="{esc(name)}">{esc(name)}</label>'
+        for name in owners
+    ) or '<span class="editable-empty">No note names an owner yet.</span>'
+    return f'''<div class="notes-toolbar">
+      <div class="tabs tabs--sm" id="notes-sort" role="group" aria-label="How the open notes are ordered">{orders}</div>
+      <details class="filter-menu" id="owner-filter">
+        <summary class="btn btn--outline btn--sm" title="Show only the notes of these owners">Owners<span class="badge" id="owner-filter-count" hidden></span>{caret()}</summary>
+        <div class="filter-menu__panel">
+          {options}
+          <button type="button" class="btn btn--ghost btn--sm" data-action="owner-filter-clear">Clear</button>
+        </div>
+      </details>
+      <button type="button" class="btn btn--outline btn--sm btn--toggle" id="notes-group" data-action="notes-group" aria-pressed="false" title="One section per owner, the notes of every project together">By owner</button>
+      <span class="notes-toolbar__count" id="notes-count" role="status"></span>
+    </div>'''
+
+
+# ─── Toolbar ─────────────────────────────────────────────────────────────────
 _WINDOW_LABELS = {
     'today': ('From today', 'Start the scale on today'),
     '30d': ('Last 30 days', 'Start the scale 30 days ago'),
@@ -620,27 +721,6 @@ def _filter_notice():
             f'<span class="filter-notice__text"></span>'
             f'<button type="button" class="btn btn--outline btn--sm" data-action="filter-clear">'
             f'{icon("level-details")}Show all</button></div>')
-
-
-def _depth_switch(action='depth', dom_id='depth-switch'):
-    """
-    Three levels, not four toggles.
-
-    A toggle answers "what is it now?", which is the one thing a toolbar cannot
-    know when half the chart is collapsed and half is not. A level is absolute:
-    it always means the same thing and always does it.
-
-    Compact is the stylesheet's job alone: the rows keep every attribute they
-    have, and a root attribute tells the chart to stop drawing what a ranked
-    reading does not need. No second markup, no second state.
-    """
-    buttons = ''.join(
-        f'<button type="button" class="tab" data-action="{action}" data-depth="{key}" '
-        f'title="{esc(title)}" aria-label="{esc(title)}">{icon("level-" + key)}{esc(label)}'
-        f'</button>'
-        for key, label, title in _DEPTH_LEVELS
-    )
-    return f'<div class="tabs tabs--sm" id="{dom_id}">{buttons}</div>'
 
 
 _TREE_DETAIL_LEVELS = (
@@ -905,14 +985,26 @@ def render_page(projects, *, window='', zoom='', today=None, settings=None):
     timeline = Timeline(chart_spans(projects, config), settings=config, col_width=col_width,
                         today=today, start_from=start_from, end_at=end_at,
                         horizon=settings_module.ZOOM_HORIZON.get(zoom_key, 0))
+    today = today or date.today()
     chart = gantt.render(projects, timeline,
-                         detail_row=lambda project, group, at: render_detail_row(project, group, at, config),
+                         detail_row=lambda project, group, at: render_detail_row(
+                             project, group, at, config, today),
                          settings=config)
-    todos_html, active_count, done_count = render_global_todos(projects, config, inbox=inbox)
+    todos_html, active_count, done_count = render_global_todos(
+        projects, config, inbox=inbox, today=today)
+
+    # The two open vocabularies of a note, carried once by the box and read
+    # by name from every composer and editor: who (the roster, then whoever a
+    # note names) and what about (whatever a note names). The filter offers
+    # only the owners a note actually carries: a filter is over what there is.
+    cards = projects + ([inbox] if inbox else [])
+    owners = note_values(cards, 'owners', roster_names(config))
+    tags = note_values(cards, 'tags')
+    used_owners = note_values(cards, 'owners')
 
     content = f"""{_project_list(projects, timeline, config, today)}
 
-  <div class="global-todos-box" data-surface="notes">
+  <div class="global-todos-box" data-surface="notes" data-owners="{esc(json.dumps(owners))}" data-tags="{esc(json.dumps(tags))}">
     <div class="global-todos-header" data-action="toggle-global">
       <div class="global-todos-title">
         <span>Actions &amp; notes</span>
@@ -920,14 +1012,19 @@ def render_page(projects, *, window='', zoom='', today=None, settings=None):
       </div>
       <button type="button" id="btn-toggle-global-todos" class="btn btn--ghost btn--sm btn--icon" data-action="toggle-global" aria-label="Collapse or expand the aggregated actions">{caret()}</button>
     </div>
-    <div id="global-todos-content" class="global-todos-content">{todos_html}</div>
+    <div id="global-todos-content" class="global-todos-content">
+      {_notes_toolbar(used_owners)}
+      <template id="todo-alert-template">{_due_alert('today')}</template>
+      <div id="global-todos-owners" class="global-todos-owners" hidden></div>
+      <div id="global-todos-cards">{todos_html}</div>
+    </div>
   </div>
 
   <div class="gantt-box" data-surface="chart">
     <div class="gantt-toolbar">
       {_search_controls(projects, config)}
       <div class="gantt-toolbar__actions">
-        {_depth_switch()}
+        {depth_switch()}
         {_zoom_switch(zoom_key)}
         {_window_switch(window_key)}
       </div>
@@ -1304,7 +1401,7 @@ def render_hierarchy_page(projects, markdown, *, settings=None):
         <button type="button" class="tab" data-action="view-tab" data-tab="markdown">Markdown</button>
       </div>
       <div class="view-toolbar__actions" id="tree-controls">
-        {_depth_switch(action='tree-depth', dom_id='tree-depth-switch')}
+        {depth_switch(action='tree-depth', dom_id='tree-depth-switch')}
         {_tree_detail_switch()}
       </div>
     </div>

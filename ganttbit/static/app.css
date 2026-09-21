@@ -570,12 +570,46 @@ body.col-resize-active { cursor: col-resize; user-select: none; }
   font-size: 13px; font-weight: 500;
   white-space: normal; overflow-wrap: break-word; word-break: break-word; min-width: 0;
 }
-.project-row__signals { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-/* The two row actions are revealed by hover or by keyboard focus: they cost
-   27px of every row when they sit on a line of their own. */
-.project-row__actions { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+.project-row__signals { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+/* The platforms a project touches, as tags beside its status: what a project
+   is, before who is on it. Quieter than the two pills, which are signals. */
+.project-row__platforms { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.project-row__platforms:empty { display: none; }
+.platform-tag {
+  font-size: 9px; font-weight: 500; line-height: 13px; padding: 0 4px;
+  border: 1px solid hsl(var(--border)); border-radius: 999px;
+  color: hsl(var(--muted-foreground)); white-space: nowrap;
+}
+/* The row actions are revealed by hover or by keyboard focus, and they are
+   out of the flow: drawn over the top right corner of the row, on the same
+   line as the title, so a row is exactly as tall as its title and its
+   signals whatever sits here. Two things: the level switch over this one
+   project, and Edit. Invisible, they take no pointer either, or a click on
+   the end of a long title would land on a level. The background is the
+   cell's own, inherited down two levels, so the row's tint and an open
+   panel's grey both come through. */
+.project-cell { position: relative; }
+.project-line--head { background: inherit; }
+.project-row__actions {
+  position: absolute; top: 5px; right: 8px; z-index: 1;
+  display: flex; gap: 4px; align-items: center; padding-left: 6px;
+  background: inherit; opacity: 0; pointer-events: none; transition: opacity .12s;
+}
 .project-main-row:hover .project-row__actions,
-.project-row__actions:focus-within { opacity: 1; }
+.project-row__actions:focus-within { opacity: 1; pointer-events: auto; }
+.project-main-row.is-compact .project-row__actions { top: 1px; }
+/* The four levels over one row: the glyphs alone, the words on hover. Sized
+   to the 20px carets of the row rather than to the toolbar's tabs, and kept
+   under 100px in all: the row gives its actions the width the title does
+   not claim, and past that they take a line of their own. */
+/* Qualified by the actions span: the `.tabs--sm .tab` rule further down is
+   as specific as `.row-depth .tab` and would win on order alone, and with
+   its 8px of padding the four tabs no longer fit beside the title. */
+.project-row__actions .row-depth { padding: 1px; gap: 1px; }
+.project-row__actions .row-depth .tab {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 3px;
+}
+.project-row__actions .row-depth .tab .icon { width: 12px; height: 12px; }
 
 /* The drop indicator says where the row will land and stays there for as long
    as the button is held: a line at the edge it will be inserted on, or, over a
@@ -614,6 +648,11 @@ body.col-resize-active { cursor: col-resize; user-select: none; }
 .resource-line[data-action]:hover { background: hsl(var(--muted)); }
 .resource-line__branch { color: hsl(var(--muted-foreground) / .5); }
 .resource-line__role { font-weight: 600; color: hsl(var(--foreground)); }
+/* The last line under a project's people is where the next one is added: the
+   same shape, quieter, and louder on hover like any other line of the row. */
+.resource-line--add { color: hsl(var(--muted-foreground) / .75); }
+.resource-line--add .icon { width: 11px; height: 11px; }
+.resource-line--add:hover, .resource-line--add:focus-visible { color: hsl(var(--foreground)); }
 
 /* Inline-flex, not inline-block: an inline-block wraps its pill in a line box
    with the leading of a 10px font, so the wrapper stood 2.5px taller than the
@@ -826,8 +865,26 @@ body.col-resize-active { cursor: col-resize; user-select: none; }
 .todo-item-row.is-dragging { opacity: .5; }
 .todo-item-row.drag-over-top { box-shadow: inset 0 3px 0 0 hsl(var(--foreground)); }
 .todo-item-row.drag-over-bottom { box-shadow: inset 0 -3px 0 0 hsl(var(--foreground)); }
-.todo-text { flex: 1; word-break: break-word; cursor: text; }
+/* The text column: the title, the text, and under them who and what about. */
+.todo-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.todo-title { display: block; font-weight: 600; word-break: break-word; }
+.todo-text { word-break: break-word; cursor: text; }
 .todo-text.done { text-decoration: line-through; color: hsl(var(--muted-foreground)); }
+.todo-item-row.done .todo-title { color: hsl(var(--muted-foreground)); }
+/* Due now, or already: the one loud thing on a note, to the left of the text
+   where the eye lands first. A signal, so it takes the warning hue. */
+.todo-alert { display: inline-flex; flex: none; margin-top: 1px; color: hsl(var(--warning)); }
+.todo-alert .icon { width: 13px; height: 13px; }
+.todo-item-row[data-due] .todo-dl { color: hsl(var(--warning)); background: hsl(var(--warning) / .18); }
+.todo-meta { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.todo-owner, .todo-tag, .todo-project {
+  font-size: 10px; line-height: 15px; padding: 0 6px; border-radius: 999px; white-space: nowrap;
+}
+.todo-owner { background: hsl(var(--muted)); color: hsl(var(--foreground)); font-weight: 500; }
+.todo-tag { border: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); }
+.todo-tag::before { content: '#'; opacity: .55; }
+/* In the owner view a note is far from its card, so the card's name rides along. */
+.todo-project { color: hsl(var(--muted-foreground)); padding: 0; }
 .todo-dl, .todo-done-at {
   font-size: 10px; font-weight: 600; white-space: nowrap;
   padding: 1px 6px; border-radius: 999px;
@@ -838,7 +895,15 @@ body.col-resize-active { cursor: col-resize; user-select: none; }
 
 .add-todo-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .add-todo-form__textarea, .todo-edit-text, .intro-edit-textarea { min-height: 60px; font-size: 12px; }
+.add-todo-form__title, .todo-edit-title { font-weight: 600; }
+.add-todo-form__title::placeholder, .todo-edit-title::placeholder { font-weight: 400; }
 .add-todo-form__row { display: flex; gap: 6px; align-items: center; }
+.add-todo-form__row--meta, .todo-edit-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+/* Owners and tags: a label, a field, and the list of values already in use
+   under it, which is positioned against the label. */
+.note-field { position: relative; display: flex; align-items: center; gap: 6px; flex: 1 1 160px; min-width: 0; }
+.note-field .field-label { white-space: nowrap; }
+.note-field .form-input { flex: 1 1 auto; min-width: 0; }
 /* A date field with no value is an empty box on iOS: no format, no hint,
    nothing. The label beside it is the only thing that
    says what the box is. */
@@ -852,6 +917,14 @@ body.col-resize-active { cursor: col-resize; user-select: none; }
 }
 
 .todo-group + .todo-group { margin-top: 8px; }
+
+/* How the open notes are read: the order, whose, and grouped by whom. */
+.notes-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.notes-toolbar__count { font-size: 11px; color: hsl(var(--muted-foreground)); white-space: nowrap; }
+.notes-toolbar__count:empty { display: none; }
+/* One section per owner is not a rank, so it takes no rail. */
+.global-todo-card--owner { border-left-color: hsl(var(--border)); }
+.global-todo-card--owner .global-todo-card__head { gap: 8px; justify-content: flex-start; }
 
 /* Rendered markdown inside a row or a box: block elements keep the line they
    are on rather than opening a new one. */
@@ -1124,24 +1197,26 @@ footer {
   font-size: 11.5px; line-height: 1.45;
 }
 
-/* ─── Compact: the whole list at one line each ────────────────────────────────
-   A depth level, and the stylesheet's job alone. The rows keep every attribute
-   they have and nothing about the document changes: what goes is everything a
-   ranked reading does not need: the signals, the row actions, the resource
-   indent. The span bar stays, because a chart with empty lanes is not a chart,
-   and so does the rail, which is the point of the level. */
-:root[data-compact] .project-main-row .project-row__signals,
-:root[data-compact] .project-main-row .project-row__actions,
-:root[data-compact] .project-main-row [data-action="toggle-project"] { display: none; }
-:root[data-compact] .project-cell { padding-top: 1px; padding-bottom: 1px; }
-:root[data-compact] .timeline-row--project { min-height: var(--compact-row-h); }
+/* ─── Compact: one line each ──────────────────────────────────────────────────
+   A depth level, per row, and the stylesheet's job alone. The row keeps every
+   attribute it has and nothing about the document changes: what goes is
+   everything a ranked reading does not need: the signals and the caret. The
+   span bar stays, because a chart with empty lanes is not a chart, and so
+   does the rail, which is the point of the level. The row actions stay too,
+   revealed by hover as always, because the level switch is one of them and a
+   row has to be able to leave Compact from where it entered it. */
+.project-main-row.is-compact .project-row__signals,
+.project-main-row.is-compact [data-action="toggle-project"] { display: none; }
+.project-main-row.is-compact .project-cell { padding-top: 1px; padding-bottom: 1px; }
+.project-main-row.is-compact .timeline-row--project { min-height: var(--compact-row-h); }
+.project-main-row.is-compact .project-row__actions .btn--icon { width: 18px; height: 18px; }
 /* One line means one line: a title too long for the column is cut, not wrapped,
    or a single project pushes every other one off the screen. */
-:root[data-compact] .project-identity { min-width: 0; }
-:root[data-compact] .project-title {
+.project-main-row.is-compact .project-identity { min-width: 0; }
+.project-main-row.is-compact .project-title {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
-:root[data-compact] .summary-bar { height: 10px; }
+.project-main-row.is-compact .summary-bar { height: 10px; }
 
 /* ─── Settings ────────────────────────────────────────────────────────────────
    One overlay, three subjects. A preference is a sentence and a reason, not a
@@ -1253,12 +1328,22 @@ footer {
 .advedit-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 14px; }
 .advedit-field { display: flex; flex-direction: column; gap: 4px; }
 .advedit-field label { font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); }
+/* A row of the table on one line. A track list holding an `auto-fit` repeat
+   may not also hold an intrinsic track, and `auto` for the remove button made
+   the whole declaration invalid: every table stacked one field per line for
+   as long as it existed. The button's track is a fixed width now, and it is
+   pinned to that track so the empty ones between collapse. */
 .advedit-row {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) auto;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) 28px;
   gap: 8px; align-items: end; margin-bottom: 8px; padding-bottom: 8px;
   border-bottom: 1px solid hsl(var(--border));
 }
+.advedit-row > .btn { grid-column: -2; }
 .advedit-row:last-child { border-bottom: none; }
+/* The same table inside the simple form's dialog: the rows, then Add row. */
+.rows-editor { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.rows-editor .advedit-rows { align-self: stretch; }
+.rows-editor .advedit-row .form-input { font-size: 12px; }
 /* A column that holds more than a line: it already takes the width of the row,
    and it needs the height to match. */
 .advedit-row textarea.adv-row-input { min-height: 62px; font-size: 12px; }
@@ -1357,7 +1442,7 @@ input[type="checkbox"] { accent-color: hsl(var(--primary)); }
      delete sits in the corner instead of in the flow, so it never costs a
      line of its own; only a due date wraps underneath. */
   .todo-item-row { position: relative; padding-right: 46px; }
-  .todo-text { flex: 1 1 calc(100% - 60px); min-width: 0; }
+  .todo-body { flex: 1 1 calc(100% - 60px); min-width: 0; }
   .todo-item-row > [data-action="todo-delete"] { position: absolute; top: 0; right: 0; }
   .global-todos-title { flex-wrap: wrap; gap: 4px; }
 
@@ -1569,7 +1654,8 @@ input[type="checkbox"] { accent-color: hsl(var(--primary)); }
   /* Neither of these can happen with a finger; the affordance goes with them. */
   .task-bar[data-project] { cursor: default; }
   .todo-item-row[draggable] { cursor: default; }
-  .project-row__actions { opacity: 1; }
+  /* Always there, and back in the flow: over the title they would cover it. */
+  .project-row__actions { position: static; opacity: 1; pointer-events: auto; padding-left: 0; }
 
   .btn { height: 44px; padding: 0 14px; }
   .btn--sm { height: 44px; padding: 0 12px; }

@@ -4,6 +4,82 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## 1.6.0 - 2026-09-21
+
+### Added
+
+- **A note has a title, owners and tags.** A note is a line of text first,
+  and may now also say what it is called, who it is for and what it is
+  about: the title in bold above the text, the owners and the tags as chips
+  under it. The composer in a project's panel and on the inbox card asks for
+  all of them, and so does the editor a double-click opens. Owners are
+  offered from the roster in `settings.toml` and from every name typed
+  since, tags from every tag typed, the way platforms are offered, and a
+  name typed for the first time is offered from then on without a reload.
+  The card holds them as `title`, `owners` and `tags` under the note; a note
+  without them is the line it always was, and a note with none of them
+  stays as small as it was.
+- **A note that is due says so.** Due today, due tomorrow, or already
+  overdue: an alert to the left of the text, in the warning hue, with the
+  word beside it for anyone who cannot see the hue. Nothing for a note due
+  later, or with no date: the list would otherwise be all alerts.
+- **The open notes read three ways.** *Actions & notes* orders the open
+  notes of every card as the card lists them — the order they were written
+  or dragged to — or by due date, soonest first or latest first, a note with
+  no date last either way. *Owners* narrows the list to the notes of the
+  people ticked, the same menu as the platforms over the chart, and says
+  how many open notes are left. *By owner* turns the list inside out: one
+  section per person across every project, in the order chosen, each note
+  with its project's name, a note with two owners under both, the notes of
+  nobody last. All three are remembered per browser, like the chart's own
+  filters. Up and Down in an editor of the aggregated list go quiet while
+  the list is ordered, narrowed or grouped: they edit the card's order, and
+  that is not the order on screen then; in the panel they always work.
+- **Platforms on the project row.** At the Projects level and above, the
+  platforms a project touches sit after its status and deadline, as tags,
+  and a tick in the panel changes them at once.
+- **Every project has its own level switch.** Four glyphs at the right end
+  of the row, shown on hover with Edit beside them: Compact, Projects,
+  Stakeholders and All details, for that one project. The toolbar's switch
+  still sets every project, and points at a level only when every row is at
+  it. Compact is a level per row now, and it is remembered across a reload,
+  which the whole-chart Compact never was. The row's *Notes & actions*
+  button went with it: All details is what it did.
+- **A line to add a timeline row, under every project's people.** At
+  Stakeholders and All details, the last line under a project's people adds
+  one, opening the row dialog on the project's own span. A project with
+  nobody on it yet unfolds to that line, so its caret is never dead.
+- **Timeline rows in the simple form.** Who, when and what, one row per
+  line, with *Add row* under them: the people on a project are written where
+  the project is, and *New project* offers the same table, so a card is born
+  with its people on it. A row written as a start and a count of working
+  days opens on the end the chart draws, and saving writes that end down,
+  one way of saying it rather than two, the rule the project's own span
+  already followed. The columns the form does not show, `days` and `flags`,
+  survive the save.
+
+### Changed
+
+- **One edit per project.** The chart row and the panel each carry one
+  *Edit*, which opens the simple form; *Advanced edit* is reached from
+  inside it and nowhere else.
+- **No row table asks for an id.** In Advanced edit the timeline rows, the
+  milestones, the estimates and the risks no longer show an ID column. A new
+  row is given an id when it is saved, as a note or a milestone always was,
+  and an existing row keeps its own, unseen. A row that names its id is that
+  row, updated in the columns posted and left alone in the rest, so a save
+  from a form that shows four columns of a row cannot drop the other two.
+- **The row tables of Advanced edit sit on one line each.** Their grid mixed
+  an auto-fit repeat with an intrinsic track, which no browser accepts, and
+  every table had stacked one field per line for as long as it existed. The
+  remove button has a fixed track now, pinned to the end of the row.
+
+### Fixed
+
+- *Up* and *Down* in the editor of an inbox note threw an error instead of
+  moving it: the inbox has no panel, and the order was read back from a list
+  that did not exist. The inbox card's own list is read now.
+
 ## 1.5.0 - 2026-09-21
 
 ### Added

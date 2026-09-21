@@ -64,9 +64,10 @@ These are the rules that keep the codebase small. Breaking one is how a
    the stylesheet or in the script, stop.
 4. The card schema is declared once, in `ganttbit/schema.py`. The API
    validates and applies from it; the browser renders its forms — Advanced
-   Edit, and New project — from the same declaration, served at
-   `/api/schema`. A form is a list of declared fields, never a list of
-   controls written in the script.
+   Edit, Edit and New project — from the same declaration, served at
+   `/api/schema`. A form is a list of declared fields and row tables, never a
+   list of controls written in the script. No table has an `id` column: a
+   row's identity is the format's, minted on save for a row that has none.
 5. Validate at the boundary. An unknown `status` or `severity` is
    refused with a 400 before it can reach a file. Never let an invalid value
    land in the vault to be normalised later.
@@ -81,6 +82,8 @@ These are the rules that keep the codebase small. Breaking one is how a
 |---|---|
 | add a card field | `ganttbit/schema.py`, one entry; form and API follow |
 | ask for a field in the simple form (New project, Edit) | `schema.simple_fields`, one entry |
+| put a row table in the simple form | `schema.simple_rows`, one entry |
+| add a column to a row table | the `*_COLUMNS` list in `ganttbit/schema.py` |
 | add an API action | register a function in `ganttbit/api.ROUTES` |
 | adjust the small-screen layout | the `@media` blocks at the end of `app.css`; the server emits the metrics before the stylesheet so a media query can narrow them |
 | change how access is granted | `server._authorised`, the single gate every verb passes through |
@@ -129,8 +132,13 @@ field is a `- ` item, a group is two spaces deeper, and free text lives under
     - note: before any analysis
 - todos
   - todo-1788000000
+    - title: …                       (optional; shown in bold above the text)
     - text: …
     - deadline: 2026-09-18
+    - owners                         (optional; one or more names)
+      - Ada Lovelace
+    - tags                           (optional)
+      - backend
 - done
   - todo-1787000000
     - text: …

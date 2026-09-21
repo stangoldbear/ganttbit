@@ -229,6 +229,92 @@ def used_values(projects, path, declared=()):
     return known
 
 
+# ─── Notes ───────────────────────────────────────────────────────────────────
+# A note is a line of text first. It may also say what it is called, who it is
+# for and what it is about, and when it is due, and the aggregated list reads
+# those to sort, filter and group. Nothing here writes: the shapes a
+# hand-edited card can put under `todos` are read defensively and never fixed.
+DUE_OVERDUE, DUE_TODAY, DUE_TOMORROW = 'overdue', 'today', 'tomorrow'
+
+
+def due_state(value, today=None):
+    """
+    How pressing a due date is: `overdue`, `today`, `tomorrow`, or nothing.
+
+    The alert beside a note is drawn from this and nothing else. A day after
+    tomorrow is not yet a signal, or the list would be all alerts; a date that
+    is not a date has no distance to report, so it reports none.
+    """
+    today = today or date.today()
+    when = _as_datetime(value)
+    if when is None:
+        return ''
+    days = (when.date() - today).days
+    if days < 0:
+        return DUE_OVERDUE
+    if days == 0:
+        return DUE_TODAY
+    if days == 1:
+        return DUE_TOMORROW
+    return ''
+
+
+def note_entries(project):
+    """Every note a card holds, open and completed, as the objects they are."""
+    entries = []
+    for key in ('todos', 'done'):
+        for item in project.get(key) or []:
+            if isinstance(item, dict):
+                entries.append(item)
+    return entries
+
+
+def note_list(note, key):
+    """
+    A note's owners or tags as a clean list.
+
+    Trimmed and never empty, and never split on a comma: a value the card holds
+    is one value, whatever punctuation it carries.
+    """
+    value = note.get(key) if isinstance(note, dict) else None
+    items = [value] if isinstance(value, str) else (value if isinstance(value, list) else [])
+    cleaned = []
+    for item in items:
+        text = '' if item is None else str(item).strip()
+        if text and text not in cleaned:
+            cleaned.append(text)
+    return cleaned
+
+
+def roster_names(settings=None):
+    """Everyone `settings.toml` names, squad by squad, in the order it names them."""
+    config = _settings(settings)
+    names = []
+    for squad in config.squads.values():
+        for member in squad:
+            if member['name'] not in names:
+                names.append(member['name'])
+    return names
+
+
+def note_values(projects, key, declared=()):
+    """
+    Every owner or tag the notes of the vault carry, the declared ones first.
+
+    The open vocabulary of a note's owners is the roster and whoever was typed
+    since; a tag is whatever was typed. Offered under the field the way a
+    platform is, so a name typed once is picked the next time rather than
+    typed again, differently.
+    """
+    known = [str(value).strip() for value in declared if str(value).strip()]
+    for project in projects:
+        for note in note_entries(project):
+            for item in note_list(note, key):
+                if item not in known:
+                    known.append(item)
+    return known
+
+
 # ─── The card as one text ────────────────────────────────────────────────────
 def search_text(project):
     """
@@ -367,6 +453,31 @@ def project_tasks(project, settings=None):
             'type': _task_type(flags),
             'outside': bool(span and (start < span[0] or end > span[1])),
         })
+    return rows
+
+
+def task_form_rows(project):
+    """
+    The timeline rows as the simple form shows them: {id, who, start, end, note}.
+
+    A row written as a start and a count of working days has an end the chart
+    computes, and the form has two date fields: it opens on the end the chart
+    draws, and saving writes that end down, one way of saying it rather than
+    two, which is the rule the project's own span already follows. A row whose
+    dates do not resolve keeps the text it has: the form is not where a value
+    somebody typed gets thrown away, and it is never dropped from the list,
+    because a save writes back the rows the form showed and only those.
+    """
+    rows = []
+    for entry in (project.get('timeline') or {}).get('tasks') or []:
+        if not isinstance(entry, dict):
+            continue
+        row = {key: str(entry.get(key, '') or '') for key in ('id', 'who', 'start', 'end', 'note')}
+        bounds = _span(entry)
+        if bounds:
+            row['start'] = bounds[0].strftime('%Y-%m-%d')
+            row['end'] = bounds[1].strftime('%Y-%m-%d')
+        rows.append(row)
     return rows
 
 
