@@ -71,20 +71,23 @@ are **Compact**, **Projects**, **Stakeholders** and **All details**: absolute
 levels rather than toggles, so each one does the same thing whatever is folded
 right now. **Compact** is one line per project, the drag handle, the number,
 the name and its span bar, which is a third shorter than a normal row.
-**Projects** adds the status, the deadline and the platforms the project
-touches, as tags. **Stakeholders** unfolds the people under it, and the last
-line under them adds one, opening the row dialog on the project's own span, so
-a project with nobody on it yet still unfolds to something. **All details**
-opens the notes and actions of every project as well. Every row carries the
-same four levels at its right end, shown on hover beside *Edit*, for that one
-project; the toolbar's switch points at a level only when every row is at it.
-The zoom is **Day**, **Week** or **Month**; a column is always a working day,
-and the zoom decides how wide it is drawn. The window is what the chart is drawn
-through: from today, the last 30 days, this year, all dates, or
-from a date you pick. The choice travels in the URL (`?from=…`) and is
-remembered per browser, and so is everything you collapsed, opened and scrolled
-to: a save reloads the page and puts you back where you were, including the
-chart's own horizontal position.
+**Projects** adds two lines of tags under the title, the same two on every row:
+the status at the left and the deadline at the right, then the platforms the
+project touches; a project with no platform keeps the empty line, so every row
+stands the same height. **Stakeholders** unfolds the people under it, and the
+last line under them adds one, opening the row dialog on the project's own
+span, so a project with nobody on it yet still unfolds to something. **All
+details** opens the notes and actions of every project as well. Every row
+carries the same four levels at its right end, shown on hover beside *Edit*,
+for that one project; the toolbar's switch points at a level only when every
+row is at it. The zoom is **Day**, **Week**, **Fortnight** or **Month**; a
+column is always a working day, and the zoom decides how wide it is drawn:
+Fortnight sits halfway between Week and Month, the week boxes still there and
+about a year on one screen. The window is what the chart is drawn through: from
+today, the last 30 days, this year, all dates, or from a date you pick. The
+choice travels in the URL (`?from=…`) and is remembered per browser, and so is
+everything you collapsed, opened and scrolled to: a save reloads the page and
+puts you back where you were, including the chart's own horizontal position.
 
 **The search reads the whole card**, not only what the chart shows: the title,
 the people and the notes, but also the risks, the estimates, the Jira keys and

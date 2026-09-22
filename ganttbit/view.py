@@ -739,9 +739,12 @@ def _tree_detail_switch():
     return f'<div class="tabs tabs--sm" id="tree-detail-switch">{buttons}</div>'
 
 
+# One entry per key of `settings.ZOOM_LEVELS`, in the same order: the widths
+# live there, the words live here, and a test keeps the two lists equal.
 _ZOOM_LABELS = (
     ('day', 'Day', 'One column per day'),
     ('week', 'Week', 'A column per day, a box per week'),
+    ('fortnight', 'Fortnight', 'Halfway to Month: the week boxes, narrower, about a year on screen'),
     ('month', 'Month', 'The whole scale, a band per month'),
 )
 

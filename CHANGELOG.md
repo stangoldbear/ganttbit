@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## 1.7.0 - 2026-09-22
+
+### Added
+
+- **Fortnight, between Week and Month.** A fourth zoom, halfway between the
+  two: four pixels a day, the week boxes still drawn, about a year on one
+  screen, and the scale runs a year past today when the window does not say
+  where to stop. Week showed a season and Month two years, with nothing in
+  between.
+
+### Changed
+
+- **The tags of a project sit under its title, on two lines of the same
+  shape.** The status at the left and the deadline at the right on the first
+  line, the platforms on the second, and the second line is there whether the
+  card names a platform or not, so every project row stands the same height
+  and the list reads as rows of one shape. They used to sit after the title
+  and wrap as the column allowed: two lines for one project, three for the
+  next.
+
 ## 1.6.0 - 2026-09-21
 
 ### Added

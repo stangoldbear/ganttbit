@@ -20,4 +20,4 @@ Layers, each with one reason to change:
                  Python never generates
 """
 
-__version__ = '1.6.0'
+__version__ = '1.7.0'

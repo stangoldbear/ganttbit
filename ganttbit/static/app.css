@@ -417,6 +417,7 @@ mark {
 /* Zoomed out, the day cells are too narrow for a number and the letters go
    with them: the week boxes and the month bands carry the scale instead. */
 :root[data-weekdays] [data-zoom="week"] .weekday-row,
+:root[data-weekdays] [data-zoom="fortnight"] .weekday-row,
 :root[data-weekdays] [data-zoom="month"] .weekday-row { display: none; }
 [data-zoom="month"] .gantt-table .day-cell--wd { background: none; }
 /* A name needs a bar to sit in: at a month per 44px there is none. */
@@ -562,19 +563,26 @@ body.col-resize-active { cursor: col-resize; user-select: none; }
    its size back at the bottom of the file, where the pointer is coarse. */
 .project-line--head .btn--icon, .group-row__inner .btn--icon { width: 20px; height: 20px; }
 .project-line { display: flex; align-items: center; gap: 6px; }
-.project-line--head { flex-wrap: wrap; row-gap: 4px; }
-.project-identity { display: flex; align-items: center; gap: 6px; flex: 1 1 60%; min-width: 0; }
+.project-identity { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
 .project-title[data-action] { cursor: pointer; }
 .project-title[data-action]:hover { text-decoration: underline; text-underline-offset: 2px; }
 .project-title {
   font-size: 13px; font-weight: 500;
   white-space: normal; overflow-wrap: break-word; word-break: break-word; min-width: 0;
 }
-.project-row__signals { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
-/* The platforms a project touches, as tags beside its status: what a project
-   is, before who is on it. Quieter than the two pills, which are signals. */
-.project-row__platforms { display: inline-flex; flex-wrap: wrap; gap: 3px; }
-.project-row__platforms:empty { display: none; }
+/* Under the title, two lines of tags, the same two on every row: the status
+   at the left and the deadline at the right, then the platforms the project
+   touches. A deadline too long for the column drops under the status and
+   keeps its side. The second line keeps the height of one tag (13px of line
+   and its two borders) when there is nothing on it, so a project with no
+   platform stands as tall as one with three and the list reads as rows of
+   one shape. Compact hides the block whole. */
+.project-row__signals { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.project-row__state { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+.project-row__state .deadline-pill { margin-left: auto; }
+/* The platforms: what a project is, before who is on it. Quieter than the two
+   pills, which are signals. */
+.project-row__platforms { display: flex; flex-wrap: wrap; gap: 3px; min-height: 15px; }
 .platform-tag {
   font-size: 9px; font-weight: 500; line-height: 13px; padding: 0 4px;
   border: 1px solid hsl(var(--border)); border-radius: 999px;
@@ -664,7 +672,7 @@ body.col-resize-active { cursor: col-resize; user-select: none; }
   display: inline-block; letter-spacing: .02em; white-space: nowrap;
 }
 .blocked-tooltip {
-  display: none; position: absolute; bottom: 125%; right: 0; z-index: 100;
+  display: none; position: absolute; bottom: 125%; left: 0; z-index: 100;
   background: hsl(var(--popover)); color: hsl(var(--popover-foreground));
   border: 1px solid hsl(var(--border));
   padding: 8px 10px; border-radius: calc(var(--radius) - 2px);
@@ -1393,7 +1401,6 @@ input[type="checkbox"] { accent-color: hsl(var(--primary)); }
      leaves it ~120px and four lines of wrapping. */
   .project-identity { flex-wrap: wrap; flex-basis: 100%; }
   .project-title { word-break: normal; flex: 1 1 100%; }
-  .project-row__signals { margin-left: 0; }
   .detail-grid { grid-template-columns: 1fr; gap: 14px; }
   .detail-panel-box { padding: 12px; }
   .field-row, .link-row { flex-wrap: wrap; }

@@ -784,12 +784,28 @@ class DomainTest(unittest.TestCase):
                            horizon=ZOOM_HORIZON['month'])
         self.assertLessEqual(bounded.days[-1].date(), date(2026, 12, 31))
 
+        # Fortnight reaches about a year ahead, Month about two.
+        middle = Timeline(self.spans, settings=self.settings, today=TODAY,
+                          horizon=ZOOM_HORIZON['fortnight'])
+        self.assertGreaterEqual(middle.days[-1].date(), TODAY + timedelta(days=360))
+        self.assertLess(len(middle.days), len(far.days))
+
     def test_the_zoom_only_changes_how_wide_a_day_is_drawn(self):
         from ganttbit.domain import resolve_zoom
+        from ganttbit.settings import ZOOM_HORIZON, ZOOM_LEVELS
         self.assertEqual(resolve_zoom('day'), (17, 'day'))
         self.assertEqual(resolve_zoom('week')[1], 'week')
         self.assertLess(resolve_zoom('month')[0], resolve_zoom('week')[0])
         self.assertEqual(resolve_zoom('whatever'), (17, 'day'))
+        # Fortnight sits between Week and Month, in width and in reach alike;
+        # the levels are listed in the order the toolbar offers them, and each
+        # one is narrower and looks further than the one before it.
+        self.assertEqual(list(ZOOM_LEVELS), ['day', 'week', 'fortnight', 'month'])
+        self.assertEqual(list(ZOOM_HORIZON), list(ZOOM_LEVELS))
+        widths = [resolve_zoom(key)[0] for key in ZOOM_LEVELS]
+        self.assertEqual(widths, sorted(set(widths), reverse=True))
+        reach = [ZOOM_HORIZON[key] for key in ZOOM_LEVELS]
+        self.assertEqual(reach, sorted(set(reach)))
 
         wide = Timeline(self.spans, settings=self.settings, today=TODAY)
         narrow = Timeline(self.spans, settings=self.settings, today=TODAY,
@@ -1900,6 +1916,52 @@ class ViewTest(unittest.TestCase):
         self.assertLess(block.index('resource-sub-row--add'), block.index('data-proj-id="project-2-eco-labels"'))
         self.assertGreater(block.index('resource-sub-row--add'), block.index('data-task="task-5"'))
 
+    def test_the_tags_sit_under_the_title_on_two_lines_of_the_same_shape(self):
+        """Status left and deadline right on one line, the platforms on the next, on every row."""
+        for pid in ('project-2-eco-labels', 'project-4-analytics-migration'):
+            cell = (self.html.split(f'data-proj-id="{pid}"')[1]
+                    .split('<td class="timeline-cell">')[0])
+            # The title line first, then one block of signals under it, not inside it.
+            head, rest = (cell.split('class="project-line project-line--head"')[1]
+                          .split('<div class="project-row__signals">'))
+            self.assertIn('class="project-row__actions"', head)
+            self.assertNotIn('status-pill', head)
+            self.assertNotIn('deadline-pill', head)
+            self.assertNotIn('project-row__platforms', head)
+            # First line: the status, then the deadline, and nothing else on it.
+            state = (rest.split('<span class="project-row__state">')[1]
+                     .split('<span class="project-row__platforms">')[0])
+            self.assertLess(state.index('class="status-pill"'), state.index('class="deadline-pill"'))
+            self.assertNotIn('platform-tag', state)
+            # Second line: the platforms, drawn whether the card names any or not,
+            # so the stylesheet can give every row the same height.
+            self.assertEqual(rest.count('<span class="project-row__platforms">'), 1)
+        with open(os.path.join(REPO_ROOT, 'ganttbit', 'static', 'app.css'), encoding='utf-8') as handle:
+            stylesheet = handle.read()
+        self.assertRegex(stylesheet, r'\.project-row__platforms \{[^}]*min-height: \d+px')
+        self.assertNotIn('.project-row__platforms:empty', stylesheet)
+
+    def test_the_zoom_switch_offers_every_level_and_the_page_says_which_drew_it(self):
+        """Four widths of a day, in the order the settings list them, one of them in force."""
+        from ganttbit.settings import ZOOM_LEVELS
+        active = r'class="tab tab--active" data-action="zoom" data-zoom="([a-z]+)"'
+        switch = self.html.split('id="zoom-switch"')[1].split('</div>')[0]
+        self.assertEqual(re.findall(r'data-zoom="([a-z]+)"', switch), list(ZOOM_LEVELS))
+        self.assertEqual(re.findall(active, switch), ['day'])
+        self.assertIn('data-zoom="day"', self.html.split('<div class="container"')[1].split('>')[0])
+
+        page = view.render_page(self.projects, zoom='fortnight', today=TODAY, settings=self.settings)
+        switch = page.split('id="zoom-switch"')[1].split('</div>')[0]
+        self.assertEqual(re.findall(active, switch), ['fortnight'])
+        self.assertIn('data-zoom="fortnight"', page.split('<div class="container"')[1].split('>')[0])
+        self.assertIn(f'--col-w:{ZOOM_LEVELS["fortnight"]}px;', page)
+        # Too narrow for a day number or for the year beside the month: the year
+        # takes a row of its own, as it does at Week, and the day cells are blank.
+        self.assertIn('class="year-row"', page)
+        self.assertNotIn('class="year-row"', self.html)
+        self.assertNotRegex(page, r'class="day-cell[^"]*" data-date="2026-09-09">9<')
+        self.assertRegex(self.html, r'class="day-cell[^"]*" data-date="2026-09-09">9<')
+
     def test_the_project_row_carries_its_platforms_and_its_own_level_switch(self):
         """What a project is, before who is on it; and the four levels over this one row."""
         row = self.html.split('data-proj-id="project-2-eco-labels"')[1].split('</tr>')[0]
@@ -1909,6 +1971,7 @@ class ViewTest(unittest.TestCase):
         self.assertIn('<span class="project-row__platforms">', row)
         blank = self.html.split('data-proj-id="project-4-analytics-migration"')[1].split('</tr>')[0]
         self.assertIn('<span class="project-row__platforms"></span>', blank)
+        self.assertNotIn('platform-tag', blank)
 
         levels = re.findall(r'data-action="project-depth" data-project="project-2-eco-labels" '
                             r'data-depth="([a-z]+)"', row)

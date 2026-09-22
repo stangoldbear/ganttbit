@@ -97,16 +97,20 @@ LABEL_W_MIN = 160    # drag limits for the sticky column
 LABEL_W_MAX = 900
 # How wide one working day is drawn, per zoom level. A column is always a day,
 # what changes is how many of them fit, and therefore what the header can say.
-ZOOM_LEVELS = {'day': COL_W, 'week': 6, 'month': 2}
+# In the order the toolbar offers them. Fortnight sits halfway between Week
+# and Month: the week boxes are still drawn, 20px each, and about a year fits
+# on one screen where Week showed a season and Month two years.
+ZOOM_LEVELS = {'day': COL_W, 'week': 6, 'fortnight': 4, 'month': 2}
 # How far ahead the scale runs when the window has not said where to stop.
 # Zooming out is asking to see further, and at 2px a day a scale that ends
 # with the last bar leaves two thirds of the screen empty: a month view of one
 # quarter is not a month view. Calendar days, measured from today; a window
-# with an end date of its own always wins.
-ZOOM_HORIZON = {'day': 0, 'week': 190, 'month': 760}
+# with an end date of its own always wins. About six months, a year, two
+# years: what fills the screen at each width, a little less.
+ZOOM_HORIZON = {'day': 0, 'week': 190, 'fortnight': 380, 'month': 760}
 DEFAULT_ZOOM = 'day'
 
-ROW_H = 34           # project row (one line: identity, signals, actions)
+ROW_H = 34           # the least a project lane is tall; the label's lines decide the rest
 COMPACT_ROW_H = 22   # the same row at the Compact level: rank, name, span
 SUB_ROW_H = 20       # resource row
 

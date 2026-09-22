@@ -343,11 +343,15 @@ def _project_row(project, group, at, rows_of_project, timeline, config):
     filter_data = (f' data-platforms="{esc(json.dumps(platforms))}"'
                    f' data-search="{esc(search_text(project))}"')
 
-    # One line: identity, then the two signals (status, deadline) and the
-    # platforms after them, then the row actions, which only appear on hover
-    # or keyboard focus: the level switch for this one project, and Edit.
-    # Advanced edit is not here: it is reached from inside the simple form,
-    # so a project has one way in, and the second editor sits behind it.
+    # Three lines, the same three on every row. The first is identity, with
+    # the row actions over its right end, shown on hover or keyboard focus:
+    # the level switch for this one project, and Edit. Advanced edit is not
+    # here: it is reached from inside the simple form, so a project has one
+    # way in, and the second editor sits behind it. Under the title, the two
+    # signals on a line of their own, the status at the left and the deadline
+    # at the right; under those, the platforms, on a line that is drawn even
+    # when there is nothing on it, so a project with no platform stands as
+    # tall as one with three and the list reads as rows of one shape.
     return f'''<tr class="project-main-row" data-group-child="{esc(group)}" data-proj-id="{esc(project_id)}" data-status="{esc(status)}"{filter_data} style="--at:{at:.2f}%" draggable="true">
   <td class="sticky-col project-cell">
     <div class="project-line project-line--head">
@@ -357,18 +361,20 @@ def _project_row(project, group, at, rows_of_project, timeline, config):
         <span class="prio-badge">{esc(project.get('priority', ''))}</span>
         <strong class="project-title" role="button" tabindex="0" title="{esc(project_id)} — click to rename" data-action="project-title" data-project="{esc(project_id)}" data-name="{esc(name)}">{esc(name)}</strong>{warning}
       </div>
-      <span class="project-row__signals">
+      <span class="project-row__actions">
+        {_row_depth_switch(project_id, name)}
+        <button type="button" class="btn btn--ghost btn--sm btn--icon" title="Edit" aria-label="Edit {esc(name)}" data-action="simple-edit-open" data-project="{esc(project_id)}">{icon('pencil')}</button>
+      </span>
+    </div>
+    <div class="project-row__signals">
+      <span class="project-row__state">
         <span class="status-wrapper" tabindex="0">
           <span class="status-pill" style="background:{status_style['bg']};color:{status_style['fg']}">{esc(status.upper())}</span>
           {tooltip}
         </span>
         <span class="deadline-pill" style="background:{deadline_style['bg']};color:{deadline_style['fg']}">{esc(format_date_long(deadline_raw, config))} [{esc(deadline_type.upper())}]</span>
-        {_platform_tags(platforms)}
       </span>
-      <span class="project-row__actions">
-        {_row_depth_switch(project_id, name)}
-        <button type="button" class="btn btn--ghost btn--sm btn--icon" title="Edit" aria-label="Edit {esc(name)}" data-action="simple-edit-open" data-project="{esc(project_id)}">{icon('pencil')}</button>
-      </span>
+      {_platform_tags(platforms)}
     </div>
   </td>
   <td class="timeline-cell">
@@ -381,9 +387,11 @@ def _platform_tags(platforms):
     """
     The platforms a project touches, as tags on its row.
 
-    They belong to the Projects level, after the status and the deadline: the
-    two signals first, then what the project touches. The span is always
-    rendered, empty or not, because a tick in the panel patches it in place.
+    They belong to the Projects level, on the line under the status and the
+    deadline: the two signals first, then what the project touches. The span
+    is always rendered, empty or not: the stylesheet keeps its height, so a
+    project with no platform stands as tall as one with three, and a tick in
+    the panel patches it in place.
     """
     tags = ''.join(f'<span class="platform-tag">{esc(name)}</span>' for name in platforms)
     return f'<span class="project-row__platforms">{tags}</span>'
